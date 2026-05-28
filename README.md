@@ -31,7 +31,7 @@
 ### روش ۱ - نصب سریع (یک دستور)
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/YOUR_REPO/masterpanel/main/quickinstall.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main/quickinstall.sh)
 ```
 
 ### روش ۲ - نصب دستی

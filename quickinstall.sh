@@ -40,7 +40,7 @@ if [[ -f "$SCRIPT_DIR/masterpanel.py" && -f "$SCRIPT_DIR/index.html" && -f "$SCR
   cp "$SCRIPT_DIR/install.sh" "$TMPDIR/"
 else
   # ── Download from GitHub (update URL after pushing to your repo) ──
-  REPO_URL="https://raw.githubusercontent.com/YOUR_USERNAME/masterpanel/main"
+  REPO_URL="https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main"
   echo -e "${YELLOW}[WARN]${NC} Local files not found. Trying to download..."
 
   for FILE in install.sh masterpanel.py index.html; do
