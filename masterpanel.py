@@ -770,10 +770,17 @@ def login_required(f):
     return decorated
 
 # ── Routes ────────────────────────────────────────────────────
+def serve_html():
+    """Serve index.html as plain file — bypass Jinja2 to avoid template conflicts."""
+    html_path = PANEL_DIR / "templates" / "index.html"
+    if html_path.exists():
+        return html_path.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return "<h1>index.html not found</h1>", 404
+
 @app.route("/")
 def index():
     if not session.get("logged_in"): return redirect(url_for("login_page"))
-    return render_template("index.html")
+    return serve_html()
 
 @app.route("/login", methods=["GET","POST"])
 def login_page():
@@ -783,7 +790,7 @@ def login_page():
             session["logged_in"] = True
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": "نام کاربری یا رمز اشتباه است"})
-    return render_template("index.html")
+    return serve_html()
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
