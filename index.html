@@ -3,474 +3,265 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MasterPanel</title>
+<title>MasterPanel v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg:        #0a0d14;
-  --bg2:       #0f1320;
-  --bg3:       #151b2e;
-  --border:    #1e2a45;
-  --accent:    #3b82f6;
-  --accent2:   #6366f1;
-  --green:     #22c55e;
-  --red:       #ef4444;
-  --yellow:    #eab308;
-  --text:      #e2e8f0;
-  --text2:     #94a3b8;
-  --text3:     #475569;
-  --radius:    12px;
-  --shadow:    0 4px 24px rgba(0,0,0,0.5);
+  --bg:      #090c12; --bg2: #0e1320; --bg3: #131a2d; --bg4: #1a2340;
+  --border:  #1e2d4a; --accent: #3b82f6; --accent2: #6366f1;
+  --green:   #22c55e; --red: #ef4444; --yellow: #eab308; --purple: #a855f7;
+  --orange:  #f97316; --cyan: #06b6d4;
+  --text:    #e2e8f0; --text2: #94a3b8; --text3: #475569;
+  --r:       12px; --shadow: 0 4px 24px rgba(0,0,0,.6);
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
-  font-family: 'Vazirmatn', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  direction: rtl;
-}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Vazirmatn',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;direction:rtl}
 
-/* ── Login ── */
-#login-screen {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 100vh;
-  background: radial-gradient(ellipse at 60% 40%, #1a2a4a 0%, #0a0d14 70%);
-}
-.login-box {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 48px 40px;
-  width: 380px;
-  box-shadow: var(--shadow);
-  animation: fadeUp .4s ease;
-}
-.login-logo {
-  text-align: center; margin-bottom: 32px;
-}
-.login-logo .logo-icon {
-  width: 64px; height: 64px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  border-radius: 16px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 28px; margin: 0 auto 12px;
-  box-shadow: 0 0 32px rgba(59,130,246,0.3);
-}
-.login-logo h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
-.login-logo p  { color: var(--text2); font-size: 13px; margin-top: 4px; }
-.form-group { margin-bottom: 16px; }
-.form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
-.form-group input {
-  width: 100%; padding: 12px 14px;
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 10px; color: var(--text);
-  font-family: inherit; font-size: 14px;
-  transition: border-color .2s;
-  direction: ltr; text-align: left;
-}
-.form-group input:focus { outline: none; border-color: var(--accent); }
-.btn-login {
-  width: 100%; padding: 13px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  border: none; border-radius: 10px;
-  color: #fff; font-family: inherit; font-size: 15px; font-weight: 600;
-  cursor: pointer; margin-top: 8px;
-  transition: opacity .2s, transform .1s;
-}
-.btn-login:hover { opacity: .9; }
-.btn-login:active { transform: scale(.98); }
-.login-error {
-  background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.3);
-  border-radius: 8px; padding: 10px 14px;
-  color: var(--red); font-size: 13px; margin-top: 12px;
-  display: none;
-}
+/* Login */
+#login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:radial-gradient(ellipse at 60% 40%,#1a2a4a,#090c12 70%)}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:48px 40px;width:380px;box-shadow:var(--shadow);animation:fadeUp .4s ease}
+.login-logo{text-align:center;margin-bottom:32px}
+.login-logo .icon{width:64px;height:64px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px;box-shadow:0 0 32px rgba(59,130,246,.3)}
+.login-logo h1{font-size:22px;font-weight:800}
+.login-logo p{color:var(--text2);font-size:13px;margin-top:4px}
+.fg{margin-bottom:16px}
+.fg label{display:block;font-size:13px;color:var(--text2);margin-bottom:6px}
+.fg input{width:100%;padding:12px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;transition:border-color .2s;direction:ltr;text-align:left}
+.fg input:focus{outline:none;border-color:var(--accent)}
+.btn-login{width:100%;padding:13px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:10px;color:#fff;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;transition:opacity .2s}
+.btn-login:hover{opacity:.9}
+.login-err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;color:var(--red);font-size:13px;margin-top:12px;display:none}
 
-/* ── App Layout ── */
-#app { display: none; min-height: 100vh; }
-.sidebar {
-  position: fixed; right: 0; top: 0; bottom: 0;
-  width: 240px;
-  background: var(--bg2);
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  z-index: 100;
-}
-.sidebar-logo {
-  padding: 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 12px;
-}
-.sidebar-logo .s-icon {
-  width: 38px; height: 38px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
-}
-.sidebar-logo span { font-weight: 800; font-size: 17px; }
-.sidebar-logo small { display: block; color: var(--text2); font-size: 11px; }
-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 20px; cursor: pointer;
-  color: var(--text2); font-size: 14px;
-  border-right: 3px solid transparent;
-  transition: all .2s;
-}
-.nav-item:hover { color: var(--text); background: var(--bg3); }
-.nav-item.active {
-  color: var(--accent); background: rgba(59,130,246,.1);
-  border-right-color: var(--accent);
-}
-.nav-item .icon { font-size: 18px; width: 22px; text-align: center; }
-.sidebar-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--border);
-}
-.server-badge {
-  background: var(--bg3); border-radius: 8px;
-  padding: 10px 12px; font-size: 12px;
-  display: flex; align-items: center; justify-content: space-between;
-}
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.dot.red   { background: var(--red); }
+/* App */
+#app{display:none;min-height:100vh}
+.sidebar{position:fixed;right:0;top:0;bottom:0;width:240px;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:100}
+.s-logo{padding:20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.s-logo .icon{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.s-logo span{font-weight:800;font-size:17px}
+.s-logo small{display:block;color:var(--text2);font-size:11px}
+nav{flex:1;padding:12px 0;overflow-y:auto}
+.nav-i{display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;color:var(--text2);font-size:14px;border-right:3px solid transparent;transition:all .2s}
+.nav-i:hover{color:var(--text);background:var(--bg3)}
+.nav-i.active{color:var(--accent);background:rgba(59,130,246,.1);border-right-color:var(--accent)}
+.nav-i .ico{font-size:18px;width:22px;text-align:center}
+.s-footer{padding:16px 20px;border-top:1px solid var(--border)}
+.srv-badge{background:var(--bg3);border-radius:8px;padding:10px 12px;font-size:12px;display:flex;align-items:center;justify-content:space-between}
+.dot{width:8px;height:8px;border-radius:50%}
+.dot.g{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.r{background:var(--red)}
+.dot.y{background:var(--yellow)}
 
-.main {
-  margin-right: 240px;
-  padding: 28px;
-  min-height: 100vh;
-}
-.topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 28px;
-}
-.topbar h2 { font-size: 20px; font-weight: 700; }
-.topbar-actions { display: flex; gap: 10px; }
-.btn {
-  padding: 9px 18px; border-radius: 8px;
-  font-family: inherit; font-size: 13px; font-weight: 600;
-  cursor: pointer; border: none; transition: all .2s;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: #2563eb; }
-.btn-danger { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
-.btn-danger:hover { background: rgba(239,68,68,.25); }
-.btn-ghost { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
-.btn-ghost:hover { color: var(--text); }
-.btn-green { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
-.btn-green:hover { background: rgba(34,197,94,.25); }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
+.main{margin-right:240px;padding:28px;min-height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.topbar h2{font-size:20px;font-weight:700}
+.topbar-a{display:flex;gap:10px}
 
-/* ── Cards ── */
-.stats-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
-  margin-bottom: 24px;
-}
-.stat-card {
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 20px;
-}
-.stat-card .label { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
-.stat-card .value { font-size: 26px; font-weight: 800; }
-.stat-card .sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
-.stat-card.accent { border-color: rgba(59,130,246,.3); }
+.btn{padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
+.btn-p{background:var(--accent);color:#fff} .btn-p:hover{background:#2563eb}
+.btn-d{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.btn-g{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3)}
+.btn-o{background:var(--bg3);color:var(--text2);border:1px solid var(--border)} .btn-o:hover{color:var(--text)}
+.btn-y{background:rgba(234,179,8,.15);color:var(--yellow);border:1px solid rgba(234,179,8,.3)}
+.btn-sm{padding:6px 12px;font-size:12px}
 
-.card {
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--radius); margin-bottom: 20px;
-}
-.card-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-}
-.card-header h3 { font-size: 15px; font-weight: 700; }
-.card-body { padding: 20px; }
+/* Stats grid */
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.sc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+.sc .lbl{font-size:12px;color:var(--text2);margin-bottom:8px}
+.sc .val{font-size:26px;font-weight:800}
+.sc .sub{font-size:11px;color:var(--text3);margin-top:4px}
+.sc.a{border-color:rgba(59,130,246,.3)}
+.sc.g{border-color:rgba(34,197,94,.3)}
+.sc.r{border-color:rgba(239,68,68,.3)}
+.sc.y{border-color:rgba(234,179,8,.3)}
 
-/* ── Protocol Badges ── */
-.proto-badge {
-  display: inline-block; padding: 2px 8px;
-  border-radius: 20px; font-size: 11px; font-weight: 600;
-}
-.proto-vless  { background: rgba(59,130,246,.2);  color: #93c5fd; }
-.proto-vmess  { background: rgba(99,102,241,.2);  color: #a5b4fc; }
-.proto-trojan { background: rgba(234,179,8,.2);   color: #fde047; }
-.proto-shadowsocks { background: rgba(34,197,94,.2); color: #86efac; }
+/* Traffic cards */
+.traf-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px}
+.traf-card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px}
+.traf-icon{font-size:28px}
+.traf-card .lbl{font-size:12px;color:var(--text2)}
+.traf-card .val{font-size:20px;font-weight:700;margin-top:2px}
 
-.tls-badge {
-  display: inline-block; padding: 2px 8px;
-  border-radius: 20px; font-size: 11px; font-weight: 600;
-}
-.tls-tls     { background: rgba(34,197,94,.15);  color: #86efac; }
-.tls-reality { background: rgba(168,85,247,.15); color: #d8b4fe; }
-.tls-none    { background: rgba(100,116,139,.15); color: #94a3b8; }
+/* Card */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:20px}
+.card-h{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-h h3{font-size:15px;font-weight:700}
+.card-b{padding:20px}
 
-/* ── Config Table ── */
-.config-table { width: 100%; border-collapse: collapse; }
-.config-table th {
-  text-align: right; padding: 10px 12px;
-  font-size: 12px; color: var(--text2); font-weight: 600;
-  border-bottom: 1px solid var(--border);
-}
-.config-table td {
-  padding: 12px 12px;
-  border-bottom: 1px solid rgba(30,42,69,.5);
-  font-size: 13px; vertical-align: middle;
-}
-.config-table tr:last-child td { border-bottom: none; }
-.config-table tr:hover td { background: rgba(255,255,255,.02); }
-.config-name { font-weight: 600; font-size: 13px; }
-.port-badge {
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 6px; padding: 2px 8px; font-size: 12px;
-  font-family: monospace;
-}
-.link-cell {
-  font-family: monospace; font-size: 11px;
-  color: var(--text3); max-width: 180px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+/* Badges */
+.pb{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.pb-vless{background:rgba(59,130,246,.2);color:#93c5fd}
+.pb-vmess{background:rgba(99,102,241,.2);color:#a5b4fc}
+.pb-trojan{background:rgba(234,179,8,.2);color:#fde047}
+.pb-shadowsocks{background:rgba(34,197,94,.2);color:#86efac}
+.pb-tuic{background:rgba(6,182,212,.2);color:#67e8f9}
+.pb-hysteria2{background:rgba(168,85,247,.2);color:#d8b4fe}
+.pb-wireguard{background:rgba(249,115,22,.2);color:#fdba74}
+.tb{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.tb-tls{background:rgba(34,197,94,.15);color:#86efac}
+.tb-reality{background:rgba(168,85,247,.15);color:#d8b4fe}
+.tb-none{background:rgba(100,116,139,.15);color:#94a3b8}
+.conn-d{background:rgba(59,130,246,.15);color:#93c5fd;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600}
+.conn-i{background:rgba(34,197,94,.15);color:#86efac;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600}
 
-/* ── Test Results ── */
-.test-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.test-row {
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 10px; padding: 14px;
-  display: flex; align-items: center; justify-content: space-between;
-}
-.test-row .name { font-size: 13px; font-weight: 600; }
-.test-row .details { font-size: 11px; color: var(--text2); margin-top: 3px; }
-.test-status { font-size: 20px; }
-.latency-ok   { color: var(--green); }
-.latency-slow { color: var(--yellow); }
-.latency-fail { color: var(--red); }
+/* Table */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:right;padding:10px 12px;font-size:12px;color:var(--text2);font-weight:600;border-bottom:1px solid var(--border)}
+.tbl td{padding:11px 12px;border-bottom:1px solid rgba(30,45,74,.4);font-size:13px;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:rgba(255,255,255,.02)}
 
-/* ── Logs ── */
-.log-box {
-  background: #080c14; border: 1px solid var(--border);
-  border-radius: 10px; padding: 16px;
-  font-family: monospace; font-size: 12px;
-  color: #94a3b8; height: 300px; overflow-y: auto;
-  line-height: 1.8;
-}
-.log-box .log-line { display: block; }
-.log-box .log-error { color: var(--red); }
-.log-box .log-warn  { color: var(--yellow); }
+/* Progress bar */
+.pgb{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-top:8px}
+.pgf{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width 1s ease}
 
-/* ── QR Modal ── */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000; display: none;
-}
-.modal-box {
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: 20px; padding: 32px; width: 420px;
-  animation: fadeUp .3s ease;
-}
-.modal-box h3 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
-#qr-img { display: block; margin: 0 auto 16px; border-radius: 10px; }
-.modal-link {
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px 12px;
-  font-family: monospace; font-size: 11px; color: var(--text2);
-  word-break: break-all; margin-bottom: 16px;
-}
+/* Log */
+.logbox{background:#060a10;border:1px solid var(--border);border-radius:10px;padding:16px;font-family:monospace;font-size:12px;color:#94a3b8;height:300px;overflow-y:auto;line-height:1.8}
+.log-err{color:var(--red)} .log-warn{color:var(--yellow)}
 
-/* ── Page sections ── */
-.page { display: none; }
-.page.active { display: block; }
+/* Modal */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:32px;width:460px;animation:fadeUp .3s ease;max-height:90vh;overflow-y:auto}
+.modal-box h3{font-size:17px;font-weight:700;margin-bottom:20px}
+.modal-link{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:monospace;font-size:11px;color:var(--text2);word-break:break-all;margin-bottom:16px}
 
-/* ── Loading ── */
-.spinner {
-  width: 20px; height: 20px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .6s linear infinite;
-  display: inline-block;
-}
-.loading-overlay {
-  position: fixed; inset: 0;
-  background: rgba(10,13,20,.85); backdrop-filter: blur(4px);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  z-index: 999; display: none;
-}
-.loading-overlay .spinner { width: 40px; height: 40px; border-width: 3px; margin-bottom: 16px; }
-.loading-overlay p { color: var(--text2); }
+/* User card */
+.user-card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
+.user-card .uname{font-weight:700;font-size:14px;margin-bottom:8px}
+.user-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text2)}
+.user-bar{margin-top:10px}
+.bar-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px}
+.bar-bg{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .5s}
+.bar-ok{background:linear-gradient(90deg,var(--accent),var(--green))}
+.bar-warn{background:linear-gradient(90deg,var(--yellow),var(--orange))}
+.bar-full{background:linear-gradient(90deg,var(--red),#dc2626)}
 
-/* ── Toast ── */
-#toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 10px; padding: 12px 20px;
-  font-size: 14px; z-index: 2000;
-  opacity: 0; transition: opacity .3s;
-  display: flex; align-items: center; gap: 8px;
-}
-#toast.show { opacity: 1; }
+/* Form */
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:13px;color:var(--text2);margin-bottom:6px}
+.form-row input,.form-row select{width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;direction:ltr;text-align:left}
+.form-row input:focus,.form-row select:focus{outline:none;border-color:var(--accent)}
 
-/* ── Empty state ── */
-.empty-state {
-  text-align: center; padding: 60px 20px; color: var(--text2);
-}
-.empty-state .big-icon { font-size: 48px; margin-bottom: 12px; }
-.empty-state p { font-size: 14px; }
+/* Empty */
+.empty{text-align:center;padding:48px 20px;color:var(--text2)}
+.empty .eico{font-size:48px;margin-bottom:12px}
 
-/* ── Animations ── */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+/* Toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:14px;z-index:2000;opacity:0;transition:opacity .3s;white-space:nowrap}
+#toast.show{opacity:1}
 
-/* ── Progress bar ── */
-.progress-bar {
-  height: 4px; background: var(--bg3);
-  border-radius: 2px; overflow: hidden; margin-top: 8px;
-}
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent2));
-  border-radius: 2px; transition: width 1s ease;
-}
+/* Loading */
+.lov{position:fixed;inset:0;background:rgba(9,12,18,.85);backdrop-filter:blur(4px);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:999}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin-bottom:14px}
+.sp-sm{width:16px;height:16px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px}
 
-/* ── TLS info box ── */
-.tls-info {
-  background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2);
-  border-radius: 10px; padding: 14px 16px; margin-top: 12px;
-}
-.tls-info .tls-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
-.tls-info .tls-row:last-child { margin-bottom: 0; }
-.tls-info .tls-key { color: var(--text2); }
-.tls-info .tls-val { font-family: monospace; color: var(--green); }
+/* IP warning */
+.ip-warn{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);border-radius:10px;padding:12px 18px;margin-bottom:18px;font-size:13px;color:#fde047;display:none}
+
+.page{display:none} .page.active{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 
-<!-- ══ LOGIN SCREEN ══════════════════════════════════════════ -->
+<!-- Login -->
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">
-      <div class="logo-icon">🛡️</div>
+      <div class="icon">🛡️</div>
       <h1>MasterPanel</h1>
-      <p>پنل مدیریت پروتکل‌های Xray</p>
+      <p>پنل مدیریت پروتکل‌های Xray — v3.0</p>
     </div>
-    <div class="form-group">
-      <label>نام کاربری</label>
-      <input type="text" id="login-user" placeholder="admin" autocomplete="off">
-    </div>
-    <div class="form-group">
-      <label>رمز عبور</label>
-      <input type="password" id="login-pass" placeholder="••••••••">
-    </div>
+    <div class="fg"><label>نام کاربری</label><input type="text" id="lu" placeholder="admin" autocomplete="off"></div>
+    <div class="fg"><label>رمز عبور</label><input type="password" id="lp" placeholder="••••••••"></div>
     <button class="btn-login" onclick="doLogin()">ورود به پنل</button>
-    <div class="login-error" id="login-error"></div>
+    <div class="login-err" id="lerr"></div>
   </div>
 </div>
 
-<!-- ══ MAIN APP ═══════════════════════════════════════════════ -->
+<!-- App -->
 <div id="app">
-
-  <!-- Sidebar -->
   <div class="sidebar">
-    <div class="sidebar-logo">
-      <div class="s-icon">🛡️</div>
-      <div>
-        <span>MasterPanel</span>
-        <small>Xray Controller</small>
-      </div>
+    <div class="s-logo">
+      <div class="icon">🛡️</div>
+      <div><span>MasterPanel</span><small>v3.0</small></div>
     </div>
     <nav>
-      <div class="nav-item active" onclick="showPage('dashboard')">
-        <span class="icon">📊</span> داشبورد
-      </div>
-      <div class="nav-item" onclick="showPage('configs')">
-        <span class="icon">⚙️</span> پروتکل‌ها
-      </div>
-      <div class="nav-item" onclick="showPage('generate')">
-        <span class="icon">✨</span> ساخت کانفیگ
-      </div>
-      <div class="nav-item" onclick="showPage('test')">
-        <span class="icon">🔬</span> تست اتصال
-      </div>
-      <div class="nav-item" onclick="showPage('tls')">
-        <span class="icon">🔒</span> بررسی TLS
-      </div>
-      <div class="nav-item" onclick="showPage('logs')">
-        <span class="icon">📋</span> لاگ‌ها
-      </div>
+      <div class="nav-i active" onclick="showPage('dashboard')"><span class="ico">📊</span>داشبورد</div>
+      <div class="nav-i" onclick="showPage('configs')"><span class="ico">⚙️</span>پروتکل‌ها</div>
+      <div class="nav-i" onclick="showPage('generate')"><span class="ico">✨</span>ساخت کانفیگ</div>
+      <div class="nav-i" onclick="showPage('users')"><span class="ico">👥</span>کاربران</div>
+      <div class="nav-i" onclick="showPage('traffic')"><span class="ico">📈</span>ترافیک</div>
+      <div class="nav-i" onclick="showPage('test')"><span class="ico">🔬</span>تست اتصال</div>
+      <div class="nav-i" onclick="showPage('tls')"><span class="ico">🔒</span>بررسی TLS</div>
+      <div class="nav-i" onclick="showPage('logs')"><span class="ico">📋</span>لاگ‌ها</div>
     </nav>
-    <div class="sidebar-footer">
-      <div class="server-badge">
+    <div class="s-footer">
+      <div class="srv-badge">
         <div>
           <div id="sb-domain" style="font-weight:600;font-size:12px;">...</div>
           <div id="sb-ip" style="color:var(--text3);font-size:11px;margin-top:2px;">...</div>
         </div>
         <div class="dot" id="xray-dot"></div>
       </div>
-      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;justify-content:center;" onclick="doLogout()">
-        خروج
-      </button>
+      <button class="btn btn-o btn-sm" style="width:100%;margin-top:10px;justify-content:center;" onclick="doLogout()">خروج</button>
     </div>
   </div>
 
-  <!-- Main content -->
   <div class="main">
-
-    <!-- ── IP Warning Banner ── -->
-    <div id="ip-warning" style="display:none;background:rgba(234,179,8,.12);border:1px solid rgba(234,179,8,.4);border-radius:10px;padding:12px 18px;margin-bottom:18px;font-size:13px;color:#fde047;">
-      ⚠ شما از طریق <strong>دامنه</strong> به پنل وصل شدید. پنل باید از طریق <strong>IP مستقیم سرور</strong> باز شود.
-      <span id="panel-ip-link" style="margin-right:8px;"></span>
-    </div>
 
     <!-- ── Dashboard ── -->
     <div class="page active" id="page-dashboard">
+      <div class="ip-warn" id="ip-warning">
+        ⚠ پنل باید با <strong>IP مستقیم</strong> باز شود، نه دامنه (Cloudflare پورت 9090 را بلاک می‌کند).
+        <span id="ip-link"></span>
+      </div>
       <div class="topbar">
         <h2>📊 داشبورد</h2>
-        <div class="topbar-actions">
-          <button class="btn btn-ghost" onclick="loadStatus()">🔄 بروزرسانی</button>
-          <button class="btn btn-primary" onclick="restartXray()">↺ ری‌استارت Xray</button>
+        <div class="topbar-a">
+          <button class="btn btn-o" onclick="loadStatus()">🔄 بروزرسانی</button>
+          <button class="btn btn-p" onclick="restartXray()">↺ ری‌استارت Xray</button>
         </div>
       </div>
-      <div class="stats-grid">
-        <div class="stat-card accent">
-          <div class="label">وضعیت Xray</div>
-          <div class="value" id="stat-xray-status">—</div>
-          <div class="sub" id="stat-xray-ver"></div>
+      <div class="sg">
+        <div class="sc a">
+          <div class="lbl">وضعیت Xray</div>
+          <div class="val" id="s-xray">—</div>
+          <div class="sub" id="s-xver"></div>
         </div>
-        <div class="stat-card">
-          <div class="label">تعداد کانفیگ</div>
-          <div class="value" id="stat-configs">0</div>
+        <div class="sc">
+          <div class="lbl">تعداد کانفیگ</div>
+          <div class="val" id="s-cfgs">0</div>
           <div class="sub">پروتکل فعال</div>
         </div>
-        <div class="stat-card">
-          <div class="label">SSL</div>
-          <div class="value" id="stat-ssl">—</div>
-          <div class="sub" id="stat-domain">—</div>
+        <div class="sc g">
+          <div class="lbl">SSL</div>
+          <div class="val" id="s-ssl">—</div>
+          <div class="sub" id="s-domain">—</div>
         </div>
-        <div class="stat-card">
-          <div class="label">آپتایم سرور</div>
-          <div class="value" id="stat-uptime">—</div>
+        <div class="sc y">
+          <div class="lbl">آپتایم سرور</div>
+          <div class="val" id="s-uptime">—</div>
           <div class="sub">از آخرین ریبوت</div>
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-header">
-          <h3>خلاصه پروتکل‌ها</h3>
+      <!-- Traffic summary -->
+      <div class="traf-grid">
+        <div class="traf-card">
+          <div class="traf-icon">⬆️</div>
+          <div><div class="lbl">آپلود کل</div><div class="val" id="s-up">—</div></div>
         </div>
-        <div class="card-body" id="proto-summary">
-          <div class="empty-state">
-            <div class="big-icon">🔧</div>
-            <p>هنوز کانفیگی ساخته نشده. از بخش «ساخت کانفیگ» شروع کنید.</p>
-          </div>
+        <div class="traf-card">
+          <div class="traf-icon">⬇️</div>
+          <div><div class="lbl">دانلود کل</div><div class="val" id="s-down">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>خلاصه پروتکل‌ها</h3></div>
+        <div class="card-b" id="proto-summary">
+          <div class="empty"><div class="eico">🔧</div><p>کانفیگی ساخته نشده</p></div>
         </div>
       </div>
     </div>
@@ -479,58 +270,37 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
     <div class="page" id="page-configs">
       <div class="topbar">
         <h2>⚙️ پروتکل‌ها</h2>
-        <div class="topbar-actions">
-          <button class="btn btn-ghost" onclick="downloadFile('/api/export/links','all_links.txt')">📄 دانلود همه لینک‌ها</button>
-          <button class="btn btn-ghost" onclick="downloadFile('/api/export/subscription','subscription.txt')">📋 سابسکریپشن</button>
-          <button class="btn btn-green" onclick="downloadFile('/api/export/subscription_b64','subscription_b64.txt')">⬇ Base64 Sub</button>
-          <button class="btn btn-primary" onclick="showPage('generate')">✨ ساخت جدید</button>
+        <div class="topbar-a">
+          <button class="btn btn-o" onclick="downloadFile('/api/export/links','all_links.txt')">📄 همه لینک‌ها</button>
+          <button class="btn btn-g" onclick="downloadFile('/api/export/subscription_b64','subscription_b64.txt')">⬇ Base64 Sub</button>
+          <button class="btn btn-p" onclick="showPage('generate')">✨ ساخت جدید</button>
         </div>
       </div>
-
-      <!-- Export summary bar -->
-      <div id="export-bar" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 20px;margin-bottom:16px;display:flex;gap:24px;align-items:center;">
-        <div style="font-size:13px;color:var(--text2);">
-          📊 کل: <strong id="exp-total" style="color:var(--text);">0</strong>
-          &nbsp;|&nbsp; ☁️ CDN: <strong id="exp-domain" style="color:var(--accent);">0</strong>
-          &nbsp;|&nbsp; 🖥 IP مستقیم: <strong id="exp-ip" style="color:var(--green);">0</strong>
-        </div>
-      </div>
-
       <div class="card">
-        <div class="card-header">
+        <div class="card-h">
           <h3>همه کانفیگ‌ها</h3>
           <div style="display:flex;gap:8px;align-items:center;">
-            <select id="filter-type" onchange="filterConfigs()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-family:inherit;font-size:12px;">
+            <select id="filter-t" onchange="filterConfigs()" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-family:inherit;font-size:12px;">
               <option value="all">همه</option>
-              <option value="domain">CDN / دامنه</option>
-              <option value="direct_ip">IP مستقیم</option>
+              <option value="domain">☁️ CDN</option>
+              <option value="direct_ip">🖥 IP مستقیم</option>
               <option value="vless">VLESS</option>
               <option value="vmess">VMess</option>
               <option value="trojan">Trojan</option>
               <option value="shadowsocks">Shadowsocks</option>
+              <option value="tuic">TUIC</option>
+              <option value="hysteria2">Hysteria2</option>
             </select>
-            <span id="cfg-count" style="font-size:12px;color:var(--text2);">0 کانفیگ</span>
+            <span id="cfg-count" style="font-size:12px;color:var(--text2);">0</span>
           </div>
         </div>
-        <div class="card-body" style="padding:0;overflow-x:auto;">
-          <table class="config-table">
-            <thead>
-              <tr>
-                <th>نام</th>
-                <th>پروتکل</th>
-                <th>اتصال</th>
-                <th>TLS</th>
-                <th>پورت</th>
-                <th>شبکه</th>
-                <th>آدرس</th>
-                <th>عملیات</th>
-              </tr>
-            </thead>
-            <tbody id="configs-tbody">
-              <tr><td colspan="7">
-                <div class="empty-state"><div class="big-icon">📭</div><p>کانفیگی وجود ندارد</p></div>
-              </td></tr>
-            </tbody>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th>نام</th><th>پروتکل</th><th>نوع</th><th>TLS کلاینت</th>
+              <th>پورت CF</th><th>پورت Xray</th><th>شبکه</th><th>عملیات</th>
+            </tr></thead>
+            <tbody id="cfg-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -538,54 +308,80 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
 
     <!-- ── Generate ── -->
     <div class="page" id="page-generate">
-      <div class="topbar">
-        <h2>✨ ساخت کانفیگ</h2>
-      </div>
+      <div class="topbar"><h2>✨ ساخت کانفیگ</h2></div>
       <div class="card">
-        <div class="card-header"><h3>ساخت خودکار همه پروتکل‌ها</h3></div>
-        <div class="card-body">
-          <p style="color:var(--text2);font-size:14px;line-height:1.8;margin-bottom:20px;">
-            با کلیک روی دکمه زیر، تمامی پروتکل‌های زیر به صورت خودکار با UUID/رمز تصادفی ساخته می‌شوند و Xray مجدداً راه‌اندازی می‌شود:
+        <div class="card-h"><h3>ساخت خودکار همه پروتکل‌ها — v3.0</h3></div>
+        <div class="card-b">
+          <p style="color:var(--text2);font-size:14px;line-height:1.9;margin-bottom:20px;">
+            نکته کلیدی v3.0: کانفیگ‌های CF دیگر روی پورت‌های تکراری نیستند. هر پروتکل پورت داخلی مجزا دارد
+            و TLS سمت Xray برای CF حالت none است (CF خودش TLS را مدیریت می‌کند).
           </p>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
               <div style="font-size:20px;margin-bottom:6px;">🔵</div>
               <div style="font-weight:700;font-size:13px;">VLESS</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·gRPC·TCP·Reality·HTTPUpgrade</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·gRPC·HU·TCP·REALITY×4</div>
             </div>
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
               <div style="font-size:20px;margin-bottom:6px;">🟣</div>
               <div style="font-weight:700;font-size:13px;">VMess</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·gRPC·TCP</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·gRPC·HU·TCP</div>
             </div>
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
               <div style="font-size:20px;margin-bottom:6px;">🟡</div>
               <div style="font-weight:700;font-size:13px;">Trojan</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·TCP·gRPC</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">WS·gRPC·TCP·HU·REALITY</div>
             </div>
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
               <div style="font-size:20px;margin-bottom:6px;">🟢</div>
               <div style="font-weight:700;font-size:13px;">Shadowsocks</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">chacha20·aes-256-gcm</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">chacha20·aes256·2022</div>
             </div>
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:20px;margin-bottom:6px;">🔒</div>
-              <div style="font-weight:700;font-size:13px;">REALITY</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">VLESS+XTLS Vision</div>
+              <div style="font-size:20px;margin-bottom:6px;">🩵</div>
+              <div style="font-weight:700;font-size:13px;">TUIC v5</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">UDP·BBR·CF+IP</div>
             </div>
             <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;">
-              <div style="font-size:20px;margin-bottom:6px;">☁️</div>
-              <div style="font-weight:700;font-size:13px;">Cloudflare CDN</div>
-              <div style="font-size:12px;color:var(--text2);margin-top:4px;">پشتیبانی از همه پورت‌های CF</div>
+              <div style="font-size:20px;margin-bottom:6px;">🟪</div>
+              <div style="font-weight:700;font-size:13px;">Hysteria2</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:4px;">QUIC·Obfs·CF+IP</div>
             </div>
           </div>
-          <button class="btn btn-primary" style="font-size:15px;padding:13px 32px;" onclick="generateConfigs()">
+          <button class="btn btn-p" style="font-size:15px;padding:13px 32px;" onclick="generateConfigs()">
             ✨ ساخت همه پروتکل‌ها
           </button>
-          <div id="gen-progress" style="display:none;margin-top:20px;">
+          <div id="gen-prog" style="display:none;margin-top:20px;">
             <p style="font-size:13px;color:var(--text2);" id="gen-msg">در حال ساخت...</p>
-            <div class="progress-bar"><div class="progress-fill" id="gen-bar" style="width:0%"></div></div>
+            <div class="pgb"><div class="pgf" id="gen-bar" style="width:0%"></div></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Users ── -->
+    <div class="page" id="page-users">
+      <div class="topbar">
+        <h2>👥 کاربران</h2>
+        <div class="topbar-a">
+          <button class="btn btn-p" onclick="openAddUser()">+ کاربر جدید</button>
+        </div>
+      </div>
+      <div id="users-list"></div>
+    </div>
+
+    <!-- ── Traffic ── -->
+    <div class="page" id="page-traffic">
+      <div class="topbar">
+        <h2>📈 ترافیک مصرفی</h2>
+        <div class="topbar-a">
+          <button class="btn btn-o" onclick="loadTraffic()">🔄 بروزرسانی</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>مصرف هر اینباند</h3></div>
+        <div class="card-b" id="traffic-body">
+          <div class="empty"><div class="eico">📊</div><p>در حال بارگذاری...</p></div>
         </div>
       </div>
     </div>
@@ -594,37 +390,30 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
     <div class="page" id="page-test">
       <div class="topbar">
         <h2>🔬 تست اتصال</h2>
-        <div class="topbar-actions">
-          <button class="btn btn-primary" onclick="runAllTests()">▶ تست همه</button>
+        <div class="topbar-a">
+          <button class="btn btn-p" onclick="runAllTests()">▶ تست همه</button>
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>نتایج تست پورت و لیتنسی</h3></div>
-        <div class="card-body">
-          <div id="test-results">
-            <div class="empty-state">
-              <div class="big-icon">🔬</div>
-              <p>روی «تست همه» کلیک کنید تا نتایج نمایش داده شوند</p>
-            </div>
-          </div>
+        <div class="card-h"><h3>نتایج تست پورت و لیتنسی</h3></div>
+        <div class="card-b" id="test-res">
+          <div class="empty"><div class="eico">🔬</div><p>روی «تست همه» کلیک کنید</p></div>
         </div>
       </div>
     </div>
 
     <!-- ── TLS ── -->
     <div class="page" id="page-tls">
-      <div class="topbar">
-        <h2>🔒 بررسی TLS / SSL</h2>
-      </div>
+      <div class="topbar"><h2>🔒 بررسی TLS</h2></div>
       <div class="card">
-        <div class="card-header"><h3>تست TLS Handshake</h3></div>
-        <div class="card-body">
+        <div class="card-h"><h3>تست TLS Handshake</h3></div>
+        <div class="card-b">
           <div style="display:flex;gap:10px;margin-bottom:16px;">
-            <input type="text" id="tls-host" placeholder="دامنه یا IP" style="flex:1;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;direction:ltr;">
-            <input type="number" id="tls-port" value="443" style="width:100px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;direction:ltr;">
-            <button class="btn btn-primary" onclick="testTLS()">تست</button>
+            <input type="text" id="tls-h" placeholder="دامنه یا IP" style="flex:1;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;direction:ltr;">
+            <input type="number" id="tls-p" value="443" style="width:90px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;direction:ltr;">
+            <button class="btn btn-p" onclick="testTLS()">تست</button>
           </div>
-          <div id="tls-result"></div>
+          <div id="tls-res"></div>
         </div>
       </div>
     </div>
@@ -633,111 +422,121 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
     <div class="page" id="page-logs">
       <div class="topbar">
         <h2>📋 لاگ‌ها</h2>
-        <div class="topbar-actions">
-          <button class="btn btn-ghost" onclick="loadLogs()">🔄 بروزرسانی</button>
+        <div class="topbar-a">
+          <button class="btn btn-o" onclick="loadLogs()">🔄 بروزرسانی</button>
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>لاگ خطای Xray</h3></div>
-        <div class="card-body">
-          <div class="log-box" id="log-box">در حال بارگذاری...</div>
-        </div>
+        <div class="card-h"><h3>لاگ خطای Xray</h3></div>
+        <div class="card-b"><div class="logbox" id="logbox">در حال بارگذاری...</div></div>
       </div>
     </div>
 
   </div><!-- /main -->
 </div><!-- /app -->
 
-<!-- ── QR Modal ── -->
-<div class="modal-overlay" id="qr-modal" onclick="closeModal()">
+<!-- QR Modal -->
+<div class="modal-ov" id="qr-modal" onclick="closeModal('qr-modal')">
   <div class="modal-box" onclick="event.stopPropagation()">
     <h3 id="qr-title">کانفیگ</h3>
     <canvas id="qr-canvas" style="display:block;margin:0 auto 16px;border-radius:10px;"></canvas>
-    <div class="modal-link" id="qr-link-text"></div>
+    <div class="modal-link" id="qr-link-txt"></div>
     <div style="display:flex;gap:10px;">
-      <button class="btn btn-primary" style="flex:1;" onclick="copyLink()">📋 کپی لینک</button>
-      <button class="btn btn-ghost" style="flex:1;" onclick="closeModal()">بستن</button>
+      <button class="btn btn-p" style="flex:1;" onclick="copyLink()">📋 کپی لینک</button>
+      <button class="btn btn-o" style="flex:1;" onclick="closeModal('qr-modal')">بستن</button>
     </div>
   </div>
 </div>
 
-<!-- ── Loading overlay ── -->
-<div class="loading-overlay" id="loading">
-  <div class="spinner"></div>
-  <p id="loading-msg">در حال پردازش...</p>
+<!-- Add User Modal -->
+<div class="modal-ov" id="user-modal" onclick="closeModal('user-modal')">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <h3>➕ کاربر جدید</h3>
+    <div class="form-row"><label>نام کاربر</label><input type="text" id="u-name" placeholder="مثلاً: علی"></div>
+    <div class="form-row"><label>محدودیت ترافیک (گیگابایت) — 0 یعنی نامحدود</label><input type="number" id="u-gb" value="0" min="0"></div>
+    <div class="form-row"><label>انقضا (روز) — 0 یعنی بدون انقضا</label><input type="number" id="u-days" value="30" min="0"></div>
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button class="btn btn-p" style="flex:1;" onclick="createUser()">ساخت کاربر</button>
+      <button class="btn btn-o" style="flex:1;" onclick="closeModal('user-modal')">لغو</button>
+    </div>
+    <div id="u-err" style="color:var(--red);font-size:13px;margin-top:10px;display:none;"></div>
+  </div>
 </div>
 
-<!-- ── Toast ── -->
+<!-- Loading -->
+<div class="lov" id="lov">
+  <div class="spinner"></div>
+  <p id="lov-msg" style="color:var(--text2);">در حال پردازش...</p>
+</div>
+
+<!-- Toast -->
 <div id="toast"></div>
 
 <script>
-// ── Simple QR Generator (built-in, no external lib needed for short strings) ──
-// We'll use a data URL approach via canvas - generate QR via API
-let currentLink = "";
+// ── State ──────────────────────────────────────────────────────
 let allConfigs = [];
+let currentLink = "";
 
-// ── IP Warning ───────────────────────────────────────────────────────────────
-function checkAccessMethod(status) {
-  const host = location.hostname;
-  // If accessed via domain (not IP), show warning
-  const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
-  if (!isIP && status && status.server_ip) {
-    const banner = document.getElementById('ip-warning');
-    const link   = document.getElementById('panel-ip-link');
-    banner.style.display = 'block';
-    link.innerHTML = `<a href="http://${status.server_ip}:9090" style="color:#fbbf24;font-weight:700;">→ باز کردن با IP</a>`;
-  }
+// ── Helpers ───────────────────────────────────────────────────
+function showLoading(msg) {
+  document.getElementById('lov-msg').textContent = msg || 'در حال پردازش...';
+  document.getElementById('lov').style.display = 'flex';
+}
+function hideLoading() { document.getElementById('lov').style.display = 'none'; }
+
+let toastT;
+function toast(msg, dur=3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), dur);
 }
 
-// ── Download helper ──────────────────────────────────────────────────────────
-function downloadFile(url, filename) {
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function downloadFile(url, fname) {
   const a = document.createElement('a');
-  a.href = url; a.download = filename;
+  a.href = url; a.download = fname;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
 }
 
-// ── Filter configs ────────────────────────────────────────────────────────────
-function filterConfigs() {
-  const val = document.getElementById('filter-type').value;
-  let filtered = allConfigs;
-  if (val === 'domain')      filtered = allConfigs.filter(c => c.connection_type === 'domain');
-  else if (val === 'direct_ip') filtered = allConfigs.filter(c => c.connection_type === 'direct_ip');
-  else if (val !== 'all')    filtered = allConfigs.filter(c => c.protocol === val);
-  renderConfigs(filtered);
-  document.getElementById('cfg-count').textContent = filtered.length + ' کانفیگ';
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-async function doLogin() {
-  const u = document.getElementById('login-user').value.trim();
-  const p = document.getElementById('login-pass').value;
-  if (!u || !p) { showLoginError('نام کاربری و رمز عبور الزامی است'); return; }
+function checkIPAccess(status) {
+  const host = location.hostname;
+  const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+  if (!isIP && status && status.server_ip) {
+    const b = document.getElementById('ip-warning');
+    const l = document.getElementById('ip-link');
+    b.style.display = 'block';
+    l.innerHTML = `<a href="http://${status.server_ip}:9090" style="color:#fbbf24;font-weight:700;margin-right:8px;">→ باز با IP</a>`;
+  }
+}
 
+// ── Login ─────────────────────────────────────────────────────
+async function doLogin() {
+  const u = document.getElementById('lu').value.trim();
+  const p = document.getElementById('lp').value;
+  if (!u || !p) { showErr('نام کاربری و رمز الزامی است'); return; }
   try {
-    const r = await fetch('/login', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({username: u, password: p})
-    });
+    const r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:u, password:p})});
     const d = await r.json();
     if (d.ok) {
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
       initApp();
-    } else {
-      showLoginError(d.error || 'خطا در ورود');
-    }
-  } catch(e) { showLoginError('خطا در ارتباط با سرور'); }
+    } else showErr(d.error || 'خطا');
+  } catch(e) { showErr('خطای شبکه'); }
 }
-
-function showLoginError(msg) {
-  const el = document.getElementById('login-error');
-  el.textContent = msg; el.style.display = 'block';
+function showErr(m) {
+  const e = document.getElementById('lerr');
+  e.textContent = m; e.style.display = 'block';
 }
-
-document.getElementById('login-pass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('lp').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 });
 
 async function doLogout() {
@@ -745,352 +544,370 @@ async function doLogout() {
   location.reload();
 }
 
-// ── Navigation ─────────────────────────────────────────────────────────────────
+// ── Navigation ────────────────────────────────────────────────
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  const items = document.querySelectorAll('.nav-item');
-  const map = {dashboard:0, configs:1, generate:2, test:3, tls:4, logs:5};
+  document.querySelectorAll('.nav-i').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  const map = {dashboard:0,configs:1,generate:2,users:3,traffic:4,test:5,tls:6,logs:7};
+  const items = document.querySelectorAll('.nav-i');
   if (map[name] !== undefined) items[map[name]].classList.add('active');
-
-  if (name === 'configs') loadConfigs();
-  if (name === 'logs') loadLogs();
-  if (name === 'tls') {
-    const d = document.getElementById('tls-host');
-    if (!d.value) d.value = window._domain || '';
-  }
+  if (name === 'configs')  loadConfigs();
+  if (name === 'logs')     loadLogs();
+  if (name === 'users')    loadUsers();
+  if (name === 'traffic')  loadTraffic();
+  if (name === 'tls')      { const f = document.getElementById('tls-h'); if (!f.value) f.value = window._domain||''; }
 }
 
-// ── Init ───────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────
 async function initApp() {
   await loadStatus();
   await loadConfigs();
 }
 
+// ── Status ────────────────────────────────────────────────────
 async function loadStatus() {
   try {
-    const r = await fetch('/api/status');
-    const d = await r.json();
-    window._domain = d.domain;
-
+    const d = await (await fetch('/api/status')).json();
+    window._domain = d.domain; window._ip = d.server_ip;
     document.getElementById('sb-domain').textContent = d.domain;
     document.getElementById('sb-ip').textContent = d.server_ip;
-    document.getElementById('stat-uptime').textContent = d.uptime;
-    checkAccessMethod(d);
-    document.getElementById('stat-configs').textContent = d.config_count;
-    document.getElementById('stat-ssl').textContent = d.ssl_valid ? '✅ فعال' : '❌ خطا';
-    document.getElementById('stat-domain').textContent = d.domain;
-
-    const xDot = document.getElementById('xray-dot');
-    const xStat = document.getElementById('stat-xray-status');
-    const xVer  = document.getElementById('stat-xray-ver');
-    if (d.xray.running) {
-      xDot.className = 'dot green';
-      xStat.textContent = '🟢 فعال';
-      xStat.style.color = 'var(--green)';
-      xVer.textContent = d.xray.version;
-    } else {
-      xDot.className = 'dot red';
-      xStat.textContent = '🔴 غیرفعال';
-      xStat.style.color = 'var(--red)';
+    document.getElementById('s-uptime').textContent = d.uptime;
+    document.getElementById('s-cfgs').textContent = d.config_count;
+    document.getElementById('s-ssl').textContent = d.ssl_valid ? '✅ فعال' : '❌ خطا';
+    document.getElementById('s-domain').textContent = d.domain;
+    // Traffic
+    if (d.traffic) {
+      document.getElementById('s-up').textContent  = d.traffic.total_up;
+      document.getElementById('s-down').textContent = d.traffic.total_down;
     }
-  } catch(e) { console.error(e); }
-}
-
-// ── Configs ────────────────────────────────────────────────────────────────────
-async function loadConfigs() {
-  try {
-    const r = await fetch('/api/configs');
-    allConfigs = await r.json();
-    renderConfigs(allConfigs);
-    renderProtoSummary(allConfigs);
-    document.getElementById('cfg-count').textContent = allConfigs.length + ' کانفیگ';
-    document.getElementById('stat-configs').textContent = allConfigs.length;
-    // Load export summary
-    try {
-      const er = await fetch('/api/export/summary');
-      const ed = await er.json();
-      if (ed.ok && ed.total > 0) {
-        document.getElementById('export-bar').style.display = 'flex';
-        document.getElementById('exp-total').textContent  = ed.total;
-        document.getElementById('exp-domain').textContent = ed.domain_configs;
-        document.getElementById('exp-ip').textContent     = ed.direct_ip_configs;
-      }
-    } catch(e) {}
+    // Xray status
+    const dot = document.getElementById('xray-dot');
+    const sv  = document.getElementById('s-xray');
+    const ver = document.getElementById('s-xver');
+    if (d.xray.running) {
+      dot.className='dot g'; sv.textContent='🟢 فعال'; sv.style.color='var(--green)';
+      ver.textContent = d.xray.version;
+    } else {
+      dot.className='dot r'; sv.textContent='🔴 غیرفعال'; sv.style.color='var(--red)';
+    }
+    checkIPAccess(d);
+    if (d.proto_counts && Object.keys(d.proto_counts).length) renderProtoSummary(d.proto_counts);
   } catch(e) {}
 }
 
-function renderConfigs(configs) {
-  const tbody = document.getElementById('configs-tbody');
-  if (!configs.length) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="big-icon">📭</div><p>کانفیگی ساخته نشده</p></div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = configs.map((c,i) => {
-    const connBadge = c.connection_type === 'direct_ip'
-      ? '<span style="background:rgba(34,197,94,.15);color:#86efac;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600;">🖥 IP</span>'
-      : '<span style="background:rgba(59,130,246,.15);color:#93c5fd;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600;">☁️ CDN</span>';
-    const realIdx = allConfigs.indexOf(c);
-    return `
-    <tr>
-      <td><span class="config-name">${c.name}</span></td>
-      <td><span class="proto-badge proto-${c.protocol}">${c.protocol.toUpperCase()}</span></td>
-      <td>${connBadge}</td>
-      <td><span class="tls-badge tls-${c.tls||'none'}">${c.tls||'none'}</span></td>
-      <td><span class="port-badge">${c.port}</span></td>
-      <td style="font-size:12px;color:var(--text2);">${c.network||'tcp'}</td>
-      <td style="font-family:monospace;font-size:11px;color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.address||'—'}</td>
-      <td>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-ghost btn-sm" onclick="showQR(${realIdx})">QR</button>
-          <button class="btn btn-ghost btn-sm" onclick="copyConfig(${realIdx})">📋</button>
-        </div>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function renderProtoSummary(configs) {
-  if (!configs.length) return;
-  const counts = {};
-  configs.forEach(c => { counts[c.protocol] = (counts[c.protocol]||0)+1; });
+function renderProtoSummary(counts) {
+  const colors = {vless:'var(--accent)',vmess:'var(--accent2)',trojan:'var(--yellow)',shadowsocks:'var(--green)',tuic:'var(--cyan)',hysteria2:'var(--purple)',wireguard:'var(--orange)'};
+  const icons  = {vless:'🔵',vmess:'🟣',trojan:'🟡',shadowsocks:'🟢',tuic:'🩵',hysteria2:'🟪',wireguard:'🟠'};
   document.getElementById('proto-summary').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
       ${Object.entries(counts).map(([p,n]) => `
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;">
-          <div style="font-size:24px;margin-bottom:6px;">${{vless:'🔵',vmess:'🟣',trojan:'🟡',shadowsocks:'🟢'}[p]||'⚪'}</div>
-          <div style="font-weight:700;font-size:13px;">${p.toUpperCase()}</div>
-          <div style="font-size:22px;font-weight:800;color:var(--accent);margin-top:4px;">${n}</div>
-        </div>
-      `).join('')}
-    </div>
-  `;
+          <div style="font-size:22px;margin-bottom:4px;">${icons[p]||'⚪'}</div>
+          <div style="font-weight:700;font-size:12px;">${p.toUpperCase()}</div>
+          <div style="font-size:22px;font-weight:800;color:${colors[p]||'var(--text)'};margin-top:4px;">${n}</div>
+        </div>`).join('')}
+    </div>`;
 }
 
-// ── Generate ───────────────────────────────────────────────────────────────────
+// ── Configs ───────────────────────────────────────────────────
+async function loadConfigs() {
+  try {
+    allConfigs = await (await fetch('/api/configs')).json();
+    renderConfigs(allConfigs);
+    document.getElementById('cfg-count').textContent = allConfigs.length + ' کانفیگ';
+  } catch(e) {}
+}
+
+function filterConfigs() {
+  const v = document.getElementById('filter-t').value;
+  let f = allConfigs;
+  if (v === 'domain')     f = allConfigs.filter(c => c.connection_type==='domain');
+  else if (v === 'direct_ip') f = allConfigs.filter(c => c.connection_type==='direct_ip');
+  else if (v !== 'all')   f = allConfigs.filter(c => c.protocol===v);
+  renderConfigs(f);
+  document.getElementById('cfg-count').textContent = f.length + ' کانفیگ';
+}
+
+function renderConfigs(list) {
+  const tb = document.getElementById('cfg-tbody');
+  if (!list.length) {
+    tb.innerHTML = `<tr><td colspan="8"><div class="empty"><div class="eico">📭</div><p>کانفیگی وجود ندارد</p></div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = list.map(c => {
+    const ri = allConfigs.indexOf(c);
+    const ctls = c.client_tls || c.tls || 'none';
+    const conn = c.connection_type==='domain'
+      ? '<span class="conn-d">☁️ CDN</span>'
+      : '<span class="conn-i">🖥 IP</span>';
+    const xport = c.xray_port || c.port;
+    return `<tr>
+      <td style="font-weight:600;font-size:13px;max-width:200px;">${escHtml(c.name)}</td>
+      <td><span class="pb pb-${c.protocol}">${c.protocol.toUpperCase()}</span></td>
+      <td>${conn}</td>
+      <td><span class="tb tb-${ctls}">${ctls}</span></td>
+      <td style="font-family:monospace;font-size:12px;">${c.port}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--text3);">${xport !== c.port ? xport : '—'}</td>
+      <td style="font-size:12px;color:var(--text2);">${c.network||'tcp'}</td>
+      <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-o btn-sm" onclick="showQR(${ri})">QR</button>
+        <button class="btn btn-o btn-sm" onclick="copyConfig(${ri})">📋</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Generate ──────────────────────────────────────────────────
 async function generateConfigs() {
-  const prog = document.getElementById('gen-progress');
+  const prog = document.getElementById('gen-prog');
   const bar  = document.getElementById('gen-bar');
   const msg  = document.getElementById('gen-msg');
   prog.style.display = 'block';
-
   let pct = 0;
-  const interval = setInterval(() => {
-    pct = Math.min(pct + 8, 90);
-    bar.style.width = pct + '%';
-  }, 300);
-
+  const iv = setInterval(() => { pct = Math.min(pct+5, 88); bar.style.width = pct+'%'; }, 400);
   try {
-    msg.textContent = 'در حال ساخت کانفیگ‌ها و اعمال روی Xray...';
-    const r = await fetch('/api/generate', {method:'POST'});
-    const d = await r.json();
-    clearInterval(interval);
-    bar.style.width = '100%';
-
+    msg.textContent = 'در حال ساخت و اعمال کانفیگ‌ها...';
+    const d = await (await fetch('/api/generate', {method:'POST'})).json();
+    clearInterval(iv); bar.style.width = '100%';
     if (d.ok) {
-      msg.textContent = `✅ ${d.count} کانفیگ با موفقیت ساخته شد!`;
+      msg.textContent = `✅ ${d.count} کانفیگ ساخته شد!`;
       allConfigs = d.configs;
-      showToast(`✅ ${d.count} پروتکل ساخته شد`);
+      toast(`✅ ${d.count} پروتکل ساخته شد`);
       await loadStatus();
-      setTimeout(() => { showPage('configs'); }, 1200);
+      setTimeout(() => showPage('configs'), 1500);
     } else {
-      msg.textContent = '❌ خطا: ' + d.error;
+      msg.textContent = '❌ ' + (d.error || 'خطا');
     }
-  } catch(e) {
-    clearInterval(interval);
-    msg.textContent = '❌ خطای شبکه';
-  }
+  } catch(e) { clearInterval(iv); msg.textContent = '❌ خطای شبکه'; }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Traffic ───────────────────────────────────────────────────
+async function loadTraffic() {
+  try {
+    const d = await (await fetch('/api/stats')).json();
+    const body = document.getElementById('traffic-body');
+    if (!d.ok || !Object.keys(d.stats).length) {
+      body.innerHTML = '<div class="empty"><div class="eico">📊</div><p>آماری موجود نیست — ابتدا کانفیگ بسازید و Xray را راه‌اندازی کنید</p></div>';
+      return;
+    }
+    body.innerHTML = Object.entries(d.stats).map(([tag, s]) => {
+      const total = s.up_raw + s.down_raw;
+      return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:600;font-size:13px;">${escHtml(tag)}</span>
+          <span style="font-size:12px;color:var(--text2);">⬆ ${s.up} &nbsp; ⬇ ${s.down}</span>
+        </div>
+        <div class="pgb" style="height:6px;">
+          <div class="pgf" style="width:${total > 0 ? '100' : '0'}%;background:linear-gradient(90deg,var(--accent),var(--cyan));"></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── Users ─────────────────────────────────────────────────────
+async function loadUsers() {
+  try {
+    const d = await (await fetch('/api/users')).json();
+    const container = document.getElementById('users-list');
+    if (!d.users || !d.users.length) {
+      container.innerHTML = '<div class="empty"><div class="eico">👥</div><p>کاربری وجود ندارد — کاربر جدید بسازید</p></div>';
+      return;
+    }
+    container.innerHTML = d.users.map(u => {
+      const limitB = u.limit_gb * 1024**3;
+      const usedB  = u.used_bytes || 0;
+      const pct    = limitB > 0 ? Math.min((usedB/limitB)*100, 100) : 0;
+      const barCls = pct < 60 ? 'bar-ok' : pct < 85 ? 'bar-warn' : 'bar-full';
+      const status = u.enabled ? '<span style="color:var(--green);font-size:12px;">● فعال</span>' : '<span style="color:var(--red);font-size:12px;">● غیرفعال</span>';
+      return `<div class="user-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div class="uname">${escHtml(u.name)} ${status}</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-y btn-sm" onclick="toggleUser('${u.id}',${!u.enabled})">${u.enabled?'غیرفعال':'فعال'}</button>
+            <button class="btn btn-d btn-sm" onclick="deleteUser('${u.id}')">حذف</button>
+          </div>
+        </div>
+        <div class="user-meta">
+          <span>📅 ساخت: ${u.created_at}</span>
+          ${u.expire_at ? `<span>⏳ انقضا: ${u.expire_at}</span>` : '<span>⏳ بدون انقضا</span>'}
+          <span>💾 حجم: ${u.limit_gb > 0 ? u.limit_gb+'GB' : 'نامحدود'}</span>
+        </div>
+        ${u.limit_gb > 0 ? `<div class="user-bar">
+          <div class="bar-lbl"><span>مصرف</span><span>${pct.toFixed(1)}%</span></div>
+          <div class="bar-bg"><div class="bar-fill ${barCls}" style="width:${pct}%"></div></div>
+        </div>` : ''}
+        <div style="margin-top:10px;font-size:11px;font-family:monospace;color:var(--text3);">UUID: ${u.uuid}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+function openAddUser() {
+  document.getElementById('u-name').value = '';
+  document.getElementById('u-gb').value = '0';
+  document.getElementById('u-days').value = '30';
+  document.getElementById('u-err').style.display = 'none';
+  document.getElementById('user-modal').style.display = 'flex';
+}
+
+async function createUser() {
+  const name = document.getElementById('u-name').value.trim();
+  const gb   = parseFloat(document.getElementById('u-gb').value) || 0;
+  const days = parseInt(document.getElementById('u-days').value) || 0;
+  if (!name) {
+    const e = document.getElementById('u-err');
+    e.textContent = 'نام الزامی است'; e.style.display = 'block'; return;
+  }
+  try {
+    const d = await (await fetch('/api/users', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, limit_gb:gb, expire_days:days})
+    })).json();
+    if (d.ok) {
+      closeModal('user-modal');
+      toast('✅ کاربر ساخته شد');
+      loadUsers();
+    }
+  } catch(e) {}
+}
+
+async function deleteUser(uid) {
+  if (!confirm('کاربر حذف شود؟')) return;
+  try {
+    await fetch(`/api/users/${uid}`, {method:'DELETE'});
+    toast('🗑 کاربر حذف شد');
+    loadUsers();
+  } catch(e) {}
+}
+
+async function toggleUser(uid, enabled) {
+  try {
+    await fetch(`/api/users/${uid}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled})
+    });
+    loadUsers();
+  } catch(e) {}
+}
+
+// ── Tests ─────────────────────────────────────────────────────
 async function runAllTests() {
   showLoading('در حال تست همه پروتکل‌ها...');
   try {
-    const r = await fetch('/api/test', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
+    const d = await (await fetch('/api/test', {
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({type:'all'})
-    });
-    const d = await r.json();
+    })).json();
     hideLoading();
     if (d.ok) renderTestResults(d.results);
-  } catch(e) {
-    hideLoading();
-    showToast('❌ خطا در تست');
-  }
+  } catch(e) { hideLoading(); toast('❌ خطا در تست'); }
 }
 
 function renderTestResults(results) {
   const entries = Object.entries(results);
   if (!entries.length) {
-    document.getElementById('test-results').innerHTML = `<div class="empty-state"><div class="big-icon">📭</div><p>ابتدا کانفیگ بسازید</p></div>`;
+    document.getElementById('test-res').innerHTML = '<div class="empty"><div class="eico">📭</div><p>ابتدا کانفیگ بسازید</p></div>';
     return;
   }
-  document.getElementById('test-results').innerHTML = `
-    <div class="test-grid">
-      ${entries.map(([name, r]) => {
+  document.getElementById('test-res').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+      ${entries.map(([name,r]) => {
         const lat = r.latency;
         const ok  = r.port_open;
-        let latClass = 'latency-fail', latText = '—';
-        if (lat !== null && lat !== undefined) {
-          latClass = lat < 200 ? 'latency-ok' : lat < 500 ? 'latency-slow' : 'latency-fail';
-          latText = lat + ' ms';
-        }
-        return `
-        <div class="test-row">
+        const latC = lat===null?'color:var(--red)':lat<200?'color:var(--green)':lat<500?'color:var(--yellow)':'color:var(--red)';
+        const latT = lat!==null ? lat+'ms' : '—';
+        const conn = r.connection_type==='domain' ? '☁️' : '🖥';
+        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <div class="name">${name}</div>
-            <div class="details">
-              <span class="proto-badge proto-${r.protocol}" style="margin-left:4px;">${r.protocol}</span>
-              <span class="tls-badge tls-${r.tls}">${r.tls}</span>
-              · ${r.network}
+            <div style="font-weight:600;font-size:13px;">${conn} ${escHtml(name)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:4px;">
+              <span class="pb pb-${r.protocol}">${r.protocol}</span> ${r.network} TLS:${r.tls}
             </div>
           </div>
           <div style="text-align:center;">
-            <div class="test-status">${ok ? '✅' : '❌'}</div>
-            <div class="${latClass}" style="font-size:12px;font-weight:600;">${latText}</div>
+            <div style="font-size:20px;">${ok?'✅':'❌'}</div>
+            <div style="${latC};font-size:12px;font-weight:600;">${latT}</div>
           </div>
         </div>`;
       }).join('')}
-    </div>
-  `;
+    </div>`;
 }
 
-// ── TLS Test ─────────────────────────────────────────────────────────────────
+// ── TLS ───────────────────────────────────────────────────────
 async function testTLS() {
-  const host = document.getElementById('tls-host').value.trim();
-  const port = document.getElementById('tls-port').value || '443';
-  if (!host) { showToast('دامنه را وارد کنید'); return; }
-
-  document.getElementById('tls-result').innerHTML = '<div class="spinner"></div>';
+  const host = document.getElementById('tls-h').value.trim();
+  const port = document.getElementById('tls-p').value || '443';
+  if (!host) { toast('دامنه را وارد کنید'); return; }
+  document.getElementById('tls-res').innerHTML = '<div class="spinner"></div>';
   try {
-    const r = await fetch('/api/test', {
+    const d = await (await fetch('/api/test', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({type:'tls', host, port: parseInt(port)})
-    });
-    const d = await r.json();
-    if (d.ok) {
-      document.getElementById('tls-result').innerHTML = `
-        <div class="tls-info">
-          <div class="tls-row"><span class="tls-key">وضعیت</span><span class="tls-val">✅ موفق</span></div>
-          <div class="tls-row"><span class="tls-key">نسخه TLS</span><span class="tls-val">${d.tls_version}</span></div>
-          <div class="tls-row"><span class="tls-key">Cipher</span><span class="tls-val">${d.cipher}</span></div>
-        </div>`;
-    } else {
-      document.getElementById('tls-result').innerHTML = `
-        <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px;color:var(--red);">
-          ❌ ${d.error}
-        </div>`;
-    }
-  } catch(e) {
-    document.getElementById('tls-result').innerHTML = '<p style="color:var(--red)">خطای شبکه</p>';
-  }
+      body: JSON.stringify({type:'tls', host, port:parseInt(port)})
+    })).json();
+    document.getElementById('tls-res').innerHTML = d.ok
+      ? `<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:14px;">
+           <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px;"><span style="color:var(--text2);">وضعیت</span><span style="color:var(--green);font-weight:600;">✅ موفق</span></div>
+           <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px;"><span style="color:var(--text2);">نسخه TLS</span><span style="font-family:monospace;">${d.tls_version}</span></div>
+           <div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--text2);">Cipher</span><span style="font-family:monospace;font-size:11px;">${d.cipher}</span></div>
+         </div>`
+      : `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px;color:var(--red);">❌ ${escHtml(d.error)}</div>`;
+  } catch(e) { document.getElementById('tls-res').innerHTML = '<p style="color:var(--red)">خطای شبکه</p>'; }
 }
 
-// ── Logs ──────────────────────────────────────────────────────────────────────
+// ── Logs ──────────────────────────────────────────────────────
 async function loadLogs() {
   try {
-    const r = await fetch('/api/xray/logs');
-    const d = await r.json();
-    const box = document.getElementById('log-box');
-    if (!d.lines || !d.lines.length) {
-      box.innerHTML = '<span style="color:var(--text3)">لاگی یافت نشد</span>';
-      return;
-    }
+    const d = await (await fetch('/api/xray/logs')).json();
+    const box = document.getElementById('logbox');
+    if (!d.lines || !d.lines.length) { box.innerHTML = '<span style="color:var(--text3)">لاگی یافت نشد</span>'; return; }
     box.innerHTML = d.lines.map(l => {
-      let cls = 'log-line';
-      if (l.includes('error') || l.includes('Error')) cls += ' log-error';
-      else if (l.includes('warning') || l.includes('warn')) cls += ' log-warn';
+      let cls = '';
+      if (/error|Error/i.test(l)) cls = 'log-err';
+      else if (/warn|WARN/i.test(l)) cls = 'log-warn';
       return `<span class="${cls}">${escHtml(l)}</span>`;
     }).join('\n');
     box.scrollTop = box.scrollHeight;
   } catch(e) {}
 }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ── Xray Restart ──────────────────────────────────────────────────────────────
+// ── Xray Restart ──────────────────────────────────────────────
 async function restartXray() {
   showLoading('در حال ری‌استارت Xray...');
   try {
-    const r = await fetch('/api/xray/restart', {method:'POST'});
-    const d = await r.json();
+    const d = await (await fetch('/api/xray/restart', {method:'POST'})).json();
     hideLoading();
-    if (d.ok) {
-      showToast('✅ Xray ری‌استارت شد');
-      await loadStatus();
-    } else {
-      showToast('❌ ' + d.error);
-    }
-  } catch(e) { hideLoading(); showToast('❌ خطا'); }
+    toast(d.ok ? '✅ Xray ری‌استارت شد' : '❌ ' + d.error);
+    await loadStatus();
+  } catch(e) { hideLoading(); toast('❌ خطا'); }
 }
 
-// ── QR Code ───────────────────────────────────────────────────────────────────
+// ── QR Code ───────────────────────────────────────────────────
 function showQR(idx) {
   const cfg = allConfigs[idx];
-  if (!cfg || !cfg.link) { showToast('لینکی برای این کانفیگ وجود ندارد'); return; }
+  if (!cfg || !cfg.link) { toast('لینکی وجود ندارد'); return; }
   currentLink = cfg.link;
   document.getElementById('qr-title').textContent = cfg.name;
-  document.getElementById('qr-link-text').textContent = cfg.link;
-
-  // Draw QR using a simple canvas approach with Google Charts API fallback
+  document.getElementById('qr-link-txt').textContent = cfg.link;
   const canvas = document.getElementById('qr-canvas');
   const img = new Image();
-  const encoded = encodeURIComponent(cfg.link);
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
     canvas.width = img.width; canvas.height = img.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
+    canvas.getContext('2d').drawImage(img, 0, 0);
   };
-  img.onerror = () => {
-    canvas.width = 200; canvas.height = 200;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0,0,200,200);
-    ctx.fillStyle = '#000';
-    ctx.font = '12px monospace';
-    ctx.fillText('QR unavailable', 20, 100);
-  };
-  // Use QR server
-  img.crossOrigin = 'anonymous';
-  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encoded}`;
-
+  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(cfg.link)}`;
   document.getElementById('qr-modal').style.display = 'flex';
 }
 
-function closeModal() {
-  document.getElementById('qr-modal').style.display = 'none';
-}
-
 function copyLink() {
-  navigator.clipboard.writeText(currentLink).then(() => showToast('✅ لینک کپی شد'));
+  navigator.clipboard.writeText(currentLink).then(() => toast('✅ لینک کپی شد'));
 }
 
 function copyConfig(idx) {
   const cfg = allConfigs[idx];
-  if (!cfg || !cfg.link) return;
-  navigator.clipboard.writeText(cfg.link).then(() => showToast('✅ لینک کپی شد'));
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function showLoading(msg) {
-  document.getElementById('loading-msg').textContent = msg || 'در حال پردازش...';
-  document.getElementById('loading').style.display = 'flex';
-}
-function hideLoading() {
-  document.getElementById('loading').style.display = 'none';
-}
-
-let toastTimer;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+  if (cfg && cfg.link) navigator.clipboard.writeText(cfg.link).then(() => toast('✅ کپی شد'));
 }
 </script>
 </body>
