@@ -424,6 +424,12 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
   <!-- Main content -->
   <div class="main">
 
+    <!-- ── IP Warning Banner ── -->
+    <div id="ip-warning" style="display:none;background:rgba(234,179,8,.12);border:1px solid rgba(234,179,8,.4);border-radius:10px;padding:12px 18px;margin-bottom:18px;font-size:13px;color:#fde047;">
+      ⚠ شما از طریق <strong>دامنه</strong> به پنل وصل شدید. پنل باید از طریق <strong>IP مستقیم سرور</strong> باز شود.
+      <span id="panel-ip-link" style="margin-right:8px;"></span>
+    </div>
+
     <!-- ── Dashboard ── -->
     <div class="page active" id="page-dashboard">
       <div class="topbar">
@@ -670,6 +676,19 @@ nav { flex: 1; padding: 12px 0; overflow-y: auto; }
 let currentLink = "";
 let allConfigs = [];
 
+// ── IP Warning ───────────────────────────────────────────────────────────────
+function checkAccessMethod(status) {
+  const host = location.hostname;
+  // If accessed via domain (not IP), show warning
+  const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+  if (!isIP && status && status.server_ip) {
+    const banner = document.getElementById('ip-warning');
+    const link   = document.getElementById('panel-ip-link');
+    banner.style.display = 'block';
+    link.innerHTML = `<a href="http://${status.server_ip}:9090" style="color:#fbbf24;font-weight:700;">→ باز کردن با IP</a>`;
+  }
+}
+
 // ── Download helper ──────────────────────────────────────────────────────────
 function downloadFile(url, filename) {
   const a = document.createElement('a');
@@ -758,6 +777,7 @@ async function loadStatus() {
     document.getElementById('sb-domain').textContent = d.domain;
     document.getElementById('sb-ip').textContent = d.server_ip;
     document.getElementById('stat-uptime').textContent = d.uptime;
+    checkAccessMethod(d);
     document.getElementById('stat-configs').textContent = d.config_count;
     document.getElementById('stat-ssl').textContent = d.ssl_valid ? '✅ فعال' : '❌ خطا';
     document.getElementById('stat-domain').textContent = d.domain;

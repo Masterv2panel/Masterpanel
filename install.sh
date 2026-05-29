@@ -368,7 +368,8 @@ setup_ssl_renewal() {
 }
 
 print_summary() {
-    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    # Force IPv4 only
+    SERVER_IP=$(curl -4 -s https://api4.ipify.org 2>/dev/null         || curl -4 -s https://ipv4.icanhazip.com 2>/dev/null         || curl -s ifconfig.me 2>/dev/null         || hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /:/) {print $i; exit}}')
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║         Installation Complete! ✓  v2.0       ║${NC}"
@@ -378,6 +379,11 @@ print_summary() {
     echo -e "  ${WHITE}Username    :${NC} ${CYAN}$PANEL_USER${NC}"
     echo -e "  ${WHITE}Domain      :${NC} ${CYAN}$DOMAIN${NC}"
     echo -e "  ${WHITE}Server IP   :${NC} ${CYAN}$SERVER_IP${NC}"
+    echo ""
+    echo -e "  ${YELLOW}⚠ Important — Panel Access:${NC}"
+    echo -e "  Use SERVER IP to open panel, NOT the domain!"
+    echo -e "  Domain is behind Cloudflare — port 9090 is blocked by CF."
+    echo -e "  ${GREEN}→ http://$SERVER_IP:$PANEL_PORT${NC}"
     echo ""
     echo -e "  ${WHITE}Installed:${NC}"
     echo -ne "  Xray     : "; $XRAY_DIR/xray version 2>/dev/null | head -1 || echo "installed"

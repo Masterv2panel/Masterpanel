@@ -48,14 +48,42 @@ def new_password(length=16):
     return ''.join(secrets.choice(chars) for _ in range(length))
 
 def get_server_ip():
+    """Always return IPv4 address."""
+    # Method 1: UDP trick (forces IPv4 route)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
-        return ip
+        if ip and not ip.startswith("127.") and ":" not in ip:
+            return ip
     except:
-        return "127.0.0.1"
+        pass
+    # Method 2: external IPv4-only API
+    for api in [
+        "https://api4.ipify.org",
+        "https://ipv4.icanhazip.com",
+        "https://v4.ident.me",
+    ]:
+        try:
+            import urllib.request
+            req = urllib.request.Request(api, headers={"User-Agent": "curl/7.0"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                ip = r.read().decode().strip()
+                if ip and ":" not in ip and not ip.startswith("127."):
+                    return ip
+        except:
+            continue
+    # Method 3: hostname resolution (prefer A record)
+    try:
+        results = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+        for r in results:
+            ip = r[4][0]
+            if not ip.startswith("127."):
+                return ip
+    except:
+        pass
+    return "0.0.0.0"
 
 def get_reality_keys():
     try:
@@ -771,8 +799,10 @@ def api_status():
     for c in configs:
         p = c["protocol"]
         proto_counts[p] = proto_counts.get(p,0) + 1
+    ip = get_server_ip()
     return jsonify({
-        "xray": xs, "domain": DOMAIN, "server_ip": get_server_ip(),
+        "xray": xs, "domain": DOMAIN, "server_ip": ip,
+        "panel_url": f"http://{ip}:{PANEL_PORT}",
         "config_count": len(configs), "proto_counts": proto_counts,
         "ssl_valid": Path(CERT_PATH).exists() if CERT_PATH else False,
         "uptime": get_uptime(),
