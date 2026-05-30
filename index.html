@@ -1304,8 +1304,11 @@ function setLang(l) {
 }
 
 function applyLang() {
-  // Update all elements with data-fa/data-en
+  // Update only safe text elements with data-fa/data-en (skip buttons with onclick)
   document.querySelectorAll('[data-fa]').forEach(el => {
+    // Skip elements that are buttons with onclick or contain child elements
+    if (el.children.length > 0) return;
+    if (el.tagName === 'BUTTON' && el.getAttribute('onclick')) return;
     el.textContent = el.getAttribute(`data-${lang}`) || el.textContent;
   });
   // Update lang switchers
