@@ -8,10 +8,16 @@ Protocols: VLESS, VMess, Trojan, Shadowsocks, TUIC, Hysteria2, ShadowTLS, NaiveP
 import os, json, uuid, subprocess, socket, ssl, time, base64, urllib.parse, secrets, string
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+from flask import Flask, request, jsonify, session, redirect, url_for, Response
 
-app = Flask(__name__)
-app.secret_key = os.urandom(32)
+app = Flask(__name__, static_folder=None)
+_SF = Path("/opt/masterpanel/.secret_key")
+Path("/opt/masterpanel").mkdir(exist_ok=True)
+if _SF.exists():
+    app.secret_key = _SF.read_bytes()
+else:
+    _k = secrets.token_bytes(32); _SF.write_bytes(_k); _SF.chmod(0o600)
+    app.secret_key = _k
 
 # ── Load config ───────────────────────────────────────────────
 PANEL_DIR    = Path("/opt/masterpanel")
@@ -38,6 +44,22 @@ XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
+USERS_FILE = PANEL_DIR / "configs" / "users.json"
+CURRENT_VERSION = "3.5.0"
+GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
+
+def serve_html():
+    p = PANEL_DIR / "templates" / "index.html"
+    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return "<h1>index.html not found</h1>", 404
+
+def load_users():
+    if USERS_FILE.exists():
+        try: return json.loads(USERS_FILE.read_text())
+        except: pass
+    return {}
+
+def save_users(u): USERS_FILE.write_text(json.dumps(u, indent=2, ensure_ascii=False))
 
 # ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
@@ -926,9 +948,193 @@ def api_extra_configs():
         result[name] = f.read_text() if f.exists() else None
     return jsonify({"ok": True, "configs": result})
 
+# ── Users API ─────────────────────────────────────────────────
+@app.route("/api/users", methods=["GET"])
+@login_required
+def api_users_list():
+    users = load_users()
+    # Attach config count from saved configs to each user
+    all_cfgs = load_saved_configs()
+    result = list(users.values())
+    return jsonify({"ok": True, "users": result})
+
+@app.route("/api/users", methods=["POST"])
+@login_required
+def api_users_create():
+    d = request.get_json() or {}
+    name = d.get("name","").strip()
+    if not name: return jsonify({"ok":False,"error":"Name required"})
+    from datetime import timedelta
+    limit_gb = float(d.get("limit_gb", 0))
+    expire_days = int(d.get("expire_days", 0))
+    users = load_users(); uid = new_uuid()
+    expire_at = (datetime.now()+timedelta(days=expire_days)).strftime("%Y-%m-%d") if expire_days else ""
+    users[uid] = {
+        "id":uid,"name":name,"uuid":new_uuid(),"password":new_password(20),
+        "limit_gb":limit_gb,"expire_at":expire_at,
+        "created_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "enabled":True,"used_bytes":0,"configs":[]
+    }
+    save_users(users)
+    return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>", methods=["DELETE"])
+@login_required
+def api_users_delete(uid):
+    users = load_users()
+    if uid in users: del users[uid]; save_users(users)
+    return jsonify({"ok":True})
+
+@app.route("/api/users/<uid>", methods=["PATCH"])
+@login_required
+def api_users_update(uid):
+    d = request.get_json() or {}
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    for k in ("name","limit_gb","expire_at","enabled"):
+        if k in d: users[uid][k] = d[k]
+    save_users(users)
+    return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>/generate", methods=["POST"])
+@login_required
+def api_user_generate(uid):
+    """Generate configs using the SAME proven logic as generate_all_configs
+       but using the user's own UUID and password."""
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"User not found"})
+    user = users[uid]
+
+    # Temporarily override shared credentials with user's own
+    ip = get_server_ip()
+    configs = []; inbounds = []
+
+    u_uuid = user["uuid"]
+    u_pass = user["password"]
+
+    reality_dests = [
+        {"dest":"www.google.com:443","sni":"www.google.com","fp":"chrome"},
+        {"dest":"www.apple.com:443","sni":"www.apple.com","fp":"safari"},
+        {"dest":"discord.com:443","sni":"discord.com","fp":"firefox"},
+        {"dest":"cdn.jsdelivr.net:443","sni":"cdn.jsdelivr.net","fp":"chrome"},
+    ]
+    for rd in reality_dests:
+        priv,pub = get_reality_keys()
+        rd["priv_key"]=priv; rd["pub_key"]=pub; rd["short_id"]=new_uuid()[:8]
+
+    cf_ports = [443, 2053, 2083, 2087, 2096, 8443]
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sfx = f"-{user['name']}"
+
+    # === VLESS CF ===
+    for port in cf_ports:
+        configs.append({"name":f"VLESS-WS-TLS-CF-{port}{sfx}","protocol":"vless","network":"ws","tls":"tls","port":port,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    configs.append({"name":f"VLESS-gRPC-TLS-CF{sfx}","protocol":"vless","network":"grpc","tls":"tls","port":443,"service_name":"vless-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    configs.append({"name":f"VLESS-HTTPUpgrade-CF{sfx}","protocol":"vless","network":"httpupgrade","tls":"tls","port":8443,"path":"/vless-hu","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    # === VLESS IP ===
+    configs.append({"name":f"VLESS-TCP-TLS-IP{sfx}","protocol":"vless","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"VLESS-WS-TLS-IP{sfx}","protocol":"vless","network":"ws","tls":"tls","port":8443,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"VLESS-HTTPUpgrade-IP{sfx}","protocol":"vless","network":"httpupgrade","tls":"tls","port":2087,"path":"/vless-hu","sni":DOMAIN,"fp":"edge","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"VLESS-TCP-NOTLS-IP{sfx}","protocol":"vless","network":"tcp","tls":"none","port":10086,"sni":"","fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    # === VLESS REALITY ===
+    for rd in reality_dests:
+        lbl = rd["sni"].split(".")[1].upper()
+        configs.append({"name":f"VLESS-REALITY-{lbl}{sfx}","protocol":"vless","network":"tcp","tls":"reality","port":443,"sni":rd["sni"],"fp":rd["fp"],"flow":"xtls-rprx-vision","address":ip,"id":u_uuid,"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip","created_at":ts})
+    # === VMess CF ===
+    for port in [443,2083,2087,8443]:
+        configs.append({"name":f"VMess-WS-TLS-CF-{port}{sfx}","protocol":"vmess","network":"ws","tls":"tls","port":port,"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    configs.append({"name":f"VMess-gRPC-CF{sfx}","protocol":"vmess","network":"grpc","tls":"tls","port":443,"service_name":"vmess-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    configs.append({"name":f"VMess-HTTPUpgrade-CF{sfx}","protocol":"vmess","network":"httpupgrade","tls":"tls","port":2096,"path":"/vmess-hu","sni":DOMAIN,"fp":"firefox","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
+    # === VMess IP ===
+    configs.append({"name":f"VMess-TCP-TLS-IP{sfx}","protocol":"vmess","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"VMess-WS-IP{sfx}","protocol":"vmess","network":"ws","tls":"none","port":10087,"path":"/vmess-ws","sni":"","fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
+    # === Trojan CF ===
+    for port in [443,2096,8443]:
+        configs.append({"name":f"Trojan-WS-CF-{port}{sfx}","protocol":"trojan","network":"ws","tls":"tls","port":port,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":u_pass,"connection_type":"domain","created_at":ts})
+    configs.append({"name":f"Trojan-gRPC-CF{sfx}","protocol":"trojan","network":"grpc","tls":"tls","port":443,"service_name":"trojan-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":u_pass,"connection_type":"domain","created_at":ts})
+    # === Trojan IP ===
+    configs.append({"name":f"Trojan-TCP-TLS-IP{sfx}","protocol":"trojan","network":"tcp","tls":"tls","port":2096,"sni":DOMAIN,"fp":"firefox","address":ip,"password":u_pass,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"Trojan-WS-TLS-IP{sfx}","protocol":"trojan","network":"ws","tls":"tls","port":8443,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":ip,"password":u_pass,"connection_type":"direct_ip","created_at":ts})
+    # === SS ===
+    configs.append({"name":f"SS-chacha20{sfx}","protocol":"shadowsocks","network":"tcp","tls":"none","port":8388,"method":"chacha20-ietf-poly1305","password":u_pass,"address":ip,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"SS-aes256{sfx}","protocol":"shadowsocks","network":"tcp","tls":"none","port":8389,"method":"aes-256-gcm","password":new_password(16),"address":ip,"connection_type":"direct_ip","created_at":ts})
+    # === TUIC ===
+    tuic_id=new_uuid(); tuic_pw=new_password(16)
+    configs.append({"name":f"TUIC-v5{sfx}","protocol":"tuic","network":"udp","tls":"tls","port":443,"sni":DOMAIN,"id":tuic_id,"password":tuic_pw,"address":ip,"connection_type":"direct_ip","congestion":"bbr","created_at":ts})
+    # === Hysteria2 ===
+    hy2_pw=new_password(20)
+    configs.append({"name":f"Hysteria2-443{sfx}","protocol":"hysteria2","network":"udp","tls":"tls","port":443,"sni":DOMAIN,"password":hy2_pw,"address":ip,"connection_type":"direct_ip","created_at":ts})
+    configs.append({"name":f"Hysteria2-8443{sfx}","protocol":"hysteria2","network":"udp","tls":"tls","port":8443,"sni":DOMAIN,"password":hy2_pw,"address":ip,"connection_type":"direct_ip","created_at":ts})
+
+    # Build links using EXACT same functions as working version
+    for cfg in configs:
+        proto = cfg["protocol"]
+        if proto=="vless":       cfg["link"]=vless_link(cfg)
+        elif proto=="vmess":     cfg["link"]=vmess_link(cfg)
+        elif proto=="trojan":    cfg["link"]=trojan_link(cfg)
+        elif proto=="shadowsocks": cfg["link"]=ss_link(cfg)
+        elif proto=="tuic":      cfg["link"]=tuic_link(cfg)
+        elif proto=="hysteria2": cfg["link"]=hysteria2_link(cfg)
+        else: cfg["link"]=""
+        # Build inbound
+        if proto in ("vless","vmess","trojan","shadowsocks"):
+            ib = build_inbound(cfg)
+            if ib: inbounds.append(ib)
+
+    # Apply to Xray — same as working version
+    write_xray_config(inbounds)
+
+    # Save to user
+    users[uid]["configs"] = configs
+    save_users(users)
+    return jsonify({"ok":True,"count":len(configs),"configs":configs})
+
+@app.route("/api/export/<uid>/<fmt>")
+@login_required
+def api_export_user(uid, fmt):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False})
+    configs = users[uid].get("configs",[])
+    raw = [c.get("link","") for c in configs if c.get("link")]
+    content = base64.b64encode("\n".join(raw).encode()).decode() if fmt=="b64" else "\n".join(raw)
+    fname = f"{users[uid]['name']}_{'sub_b64' if fmt=='b64' else 'links'}.txt"
+    return Response(content, mimetype="text/plain",
+        headers={"Content-Disposition":f"attachment; filename={fname}"})
+
+# ── Update API ─────────────────────────────────────────────────
+@app.route("/api/update", methods=["POST"])
+@login_required
+def api_update():
+    results = []
+    try:
+        import urllib.request as ur
+        for fname, dest in [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
+                             ("index.html", PANEL_DIR/"templates"/"index.html")]:
+            req = ur.Request(f"{GITHUB_RAW}/{fname}", headers={"User-Agent":"MasterPanel/3.5"})
+            with ur.urlopen(req, timeout=15) as r: dest.write_bytes(r.read())
+            results.append(f"OK: {fname}")
+        import subprocess as sp
+        sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
+        return jsonify({"ok":True,"results":results,"message":"آپدیت انجام شد — رفرش کنید"})
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e),"results":results})
+
+@app.route("/api/update/check")
+@login_required
+def api_update_check():
+    try:
+        import urllib.request as ur
+        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel/3.5"})
+        with ur.urlopen(req, timeout=5) as r: latest = r.read().decode().strip()
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
+    except:
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
+
 # ── Run ───────────────────────────────────────────────────────
 if __name__ == "__main__":
     import logging
+    from datetime import timedelta
+    app.permanent_session_lifetime = timedelta(days=30)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    print(f"[MasterPanel v2.0] Starting on port {PANEL_PORT}")
+    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on port {PANEL_PORT}")
     app.run(host="0.0.0.0", port=PANEL_PORT, debug=False)
