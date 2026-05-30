@@ -1,259 +1,201 @@
-<div align="center">
+# MasterPanel - Xray Auto Protocol Configurator
 
-# 🛡️ MasterPanel
-
-**پنل مدیریت پروتکل‌های Xray با رابط فارسی**
-
-[![Version](https://img.shields.io/badge/version-4.0.0-blue?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel/releases)
-[![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian-orange?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel)
-
-</div>
+پنل مدیریت خودکار پروتکل‌های Xray با رابط فارسی
 
 ---
 
-## ✨ ویژگی‌ها
+## ویژگی‌ها
 
-- **مدیریت کاربر** — ساخت کاربر با UUID اختصاصی، محدودیت ترافیک، تاریخ انقضا
-- **ساخت خودکار کانفیگ** — به ازای هر کاربر: VLESS، VMess، Trojan، Shadowsocks، TUIC v5، Hysteria2
-- **Cloudflare CDN** — کانفیگ‌های بهینه برای تمام پورت‌های CF (443، 2053، 2083، 2087، 2096، 8443)
-- **IP مستقیم** — کانفیگ‌های بدون CDN با TLS کامل
-- **REALITY** — چهار dest مختلف (Google، Apple، Discord، jsDelivr) با کلید x25519 خودکار
-- **آپدیت یک‌کلیکی** — آپدیت مستقیم از GitHub بدون نیاز به دستور
-- **نظارت ترافیک** — آمار آپلود/دانلود از Xray API
-- **تست اتصال** — تست پورت و لیتنسی داخل پنل
-- **بررسی TLS** — تست handshake و نمایش Cipher Suite
-- **سشن پایدار** — بدون logout هنگام رفرش
-- **رابط فارسی** — طراحی dark mode کامل
+- ساخت خودکار تمام پروتکل‌ها (VLESS, VMess, Trojan, Shadowsocks)
+- پشتیبانی از REALITY, WS, gRPC, TCP, HTTPUpgrade
+- رابط کاربری فارسی
+- تست اتصال و لیتنسی داخل پنل
+- بررسی TLS/SSL
+- QR Code برای هر کانفیگ
+- کپی لینک اشتراک‌گذاری
+- نصب و راه‌اندازی کاملاً خودکار
 
 ---
 
-## 📦 پروتکل‌های پشتیبانی‌شده
+## پیش‌نیازها
 
-| پروتکل | Transport | TLS | نوع اتصال |
-|--------|-----------|-----|-----------|
-| VLESS | WS | TLS | CF (6 پورت) + IP مستقیم |
-| VLESS | gRPC | TLS | CF + IP |
-| VLESS | HTTPUpgrade | TLS | CF + IP |
-| VLESS | TCP | TLS | IP مستقیم |
-| VLESS | TCP | REALITY | IP (4 dest) |
-| VMess | WS | TLS | CF (4 پورت) + IP |
-| VMess | gRPC | TLS | CF |
-| VMess | HTTPUpgrade | TLS | CF + IP |
-| Trojan | WS | TLS | CF (3 پورت) + IP |
-| Trojan | gRPC | TLS | CF |
-| Trojan | TCP | TLS | IP |
-| Trojan | TCP | REALITY | IP |
-| Shadowsocks | TCP | — | IP (chacha20 + aes256) |
-| TUIC v5 | UDP | TLS | IP + CF |
-| Hysteria2 | UDP | TLS | IP (plain + obfs) |
+- سرور Ubuntu 20.04 / 22.04 / Debian 11+
+- دامنه با DNS روی Cloudflare یا هر DNS دیگری
+- DNS رکورد دامنه به IP سرور اشاره کند
+- پورت 80 و 443 باز باشد (برای SSL)
 
 ---
 
-## ⚡ نصب سریع
+## نصب
+
+### روش ۱ - نصب سریع (یک دستور)
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main/quickinstall.sh)
 ```
 
-### پیش‌نیازها
-- Ubuntu 20.04+ یا Debian 11+
-- دامنه‌ای که DNS آن به IP سرور اشاره دارد (برای SSL)
-- پورت 80 باز باشد (برای Let's Encrypt)
-- دسترسی root
+### روش ۲ - نصب دستی
 
-### مراحل نصب
+```bash
+# ۱. کلون یا دانلود فایل‌ها
+mkdir /tmp/masterpanel && cd /tmp/masterpanel
+
+# فایل‌ها را آپلود کنید:
+# - install.sh
+# - masterpanel.py
+# - index.html
+
+# ۲. اجرای نصب‌کننده
+chmod +x install.sh
+sudo bash install.sh
+```
+
 نصب‌کننده از شما می‌پرسد:
-1. **دامنه** — مثال: `vpn.example.com`
-2. **نام کاربری پنل** — حداقل 4 کاراکتر
-3. **رمز عبور پنل** — حداقل 8 کاراکتر
-
-بعد از نصب، پنل روی `http://SERVER_IP:9090` در دسترس است.
-
-> ⚠️ **مهم:** پنل را با **IP مستقیم** باز کنید، نه دامنه. Cloudflare پورت 9090 را پشتیبانی نمی‌کند.
+- دامنه (مثال: vpn.example.com)
+- نام کاربری پنل
+- رمز عبور پنل (حداقل ۸ کاراکتر)
 
 ---
 
-## 🔧 استفاده
+## دسترسی به پنل
 
-### ۱. ورود به پنل
+بعد از نصب:
+
 ```
 http://YOUR_SERVER_IP:9090
 ```
 
-### ۲. ساخت کاربر
-- برو به **کاربران** → **+ کاربر جدید**
-- نام، محدودیت ترافیک (GB)، و تاریخ انقضا را مشخص کن
-
-### ۳. ساخت کانفیگ
-- روی **⚙️ کانفیگ‌ها** کلیک کن
-- پروتکل مورد نظر یا **همه پروتکل‌ها** را انتخاب کن
-- کانفیگ‌های اختصاصی آن کاربر ساخته می‌شود
-
-### ۴. دریافت لینک
-- **QR Code** — برای اسکن با کلاینت موبایل
-- **📋 کپی لینک** — کپی لینک منفرد
-- **کپی سابسکریپشن** — Base64 برای import در v2rayN/Nekobox/Hiddify
-- **دانلود لینک‌ها** — فایل txt با همه لینک‌ها
-
 ---
 
-## 🏗️ معماری فنی
-
-### ساختار CF vs Direct IP
-
-```
-کلاینت ──[TLS]──▶ Cloudflare ──[plain HTTP]──▶ Xray (internal port)
-کلاینت ──[TLS]──▶ Xray (direct port with cert)
-```
-
-### پورت‌های Cloudflare
-CF فقط این پورت‌های HTTPS را پروکسی می‌کند:
-`443`, `2053`, `2083`, `2087`, `2096`, `8443`
-
-### پورت‌های مستقیم Xray
-
-| پروتکل | Transport | پورت |
-|--------|-----------|------|
-| VLESS | TCP TLS | 2053 |
-| VLESS | WS TLS | 8443 |
-| VLESS | HTTPUpgrade | 2087 |
-| VLESS | TCP no-TLS | 10086 |
-| VLESS | REALITY | 443 |
-| VMess | TCP TLS | 2053 |
-| VMess | WS no-TLS | 10087 |
-| VMess | HTTPUpgrade | 2082 |
-| Trojan | TCP TLS | 2096 |
-| Trojan | WS TLS | 8443 |
-| Trojan | HTTPUpgrade | 2053 |
-| SS chacha20 | TCP | 8388 |
-| SS aes256 | TCP | 8389 |
-| TUIC v5 | UDP | 443 |
-| Hysteria2 | UDP | 443, 8443, 19999 |
-
----
-
-## 📂 ساختار فایل‌ها
+## ساختار فایل‌ها
 
 ```
 /opt/masterpanel/
-├── masterpanel.py          # سرور اصلی (Flask)
-├── panel.conf              # تنظیمات: دامنه، یوزر، رمز
-├── version.txt             # نسخه فعلی
-├── .secret_key             # کلید سشن (پایدار بین ری‌استارت‌ها)
-├── venv/                   # محیط Python
+├── masterpanel.py      # سرور اصلی پنل
+├── panel.conf          # تنظیمات (دامنه، یوزر، پسورد)
+├── venv/               # محیط Python
 ├── templates/
-│   └── index.html          # رابط فارسی
+│   └── index.html      # رابط فارسی پنل
 ├── configs/
-│   ├── users.json          # اطلاعات کاربران و کانفیگ‌هایشان
-│   ├── tuic_config.json    # کانفیگ TUIC server
-│   └── hysteria2_config.yaml
+│   └── all_configs.json  # کانفیگ‌های ساخته‌شده
 └── logs/
-    ├── panel.log
-    ├── xray-access.log
-    └── xray-error.log
+    ├── panel.log         # لاگ پنل
+    ├── xray-access.log   # لاگ دسترسی Xray
+    └── xray-error.log    # لاگ خطای Xray
 
 /usr/local/etc/xray/
-└── config.json             # کانفیگ Xray (خودکار)
+└── config.json         # کانفیگ اصلی Xray
 
 /usr/local/bin/
-├── xray                    # Xray core binary
-├── hysteria                # Hysteria2 binary
-└── tuic-server             # TUIC binary
+└── xray                # باینری Xray
 ```
 
 ---
 
-## 🔄 آپدیت
-
-### از داخل پنل (توصیه‌شده)
-برو به داشبورد → دکمه **🔄 آپدیت** → تأیید
-
-### دستی از سرور
-```bash
-bash /opt/masterpanel/mp.sh update
-```
-
----
-
-## 🛠️ مدیریت سرویس
+## مدیریت سرویس
 
 ```bash
-# وضعیت کامل
-bash /opt/masterpanel/mp.sh status
+# وضعیت پنل
+systemctl status masterpanel
 
-# ری‌استارت همه سرویس‌ها
-bash /opt/masterpanel/mp.sh restart-all
+# ری‌استارت پنل
+systemctl restart masterpanel
 
-# لاگ‌ها
-bash /opt/masterpanel/mp.sh logs panel
-bash /opt/masterpanel/mp.sh logs xray
-bash /opt/masterpanel/mp.sh logs hy2
+# لاگ پنل
+tail -f /opt/masterpanel/logs/panel.log
 
-# تمدید SSL
-bash /opt/masterpanel/mp.sh renew-ssl
+# وضعیت Xray
+systemctl status xray
 
-# تغییر رمز
-bash /opt/masterpanel/mp.sh update-pass
-
-# حذف کامل
-bash /opt/masterpanel/mp.sh uninstall
+# لاگ Xray
+tail -f /opt/masterpanel/logs/xray-error.log
 ```
 
 ---
 
-## 🔐 پیکربندی Cloudflare
+## پروتکل‌های پشتیبانی‌شده
 
-برای استفاده از CDN:
-
-1. رکورد A بسازید: `sub.domain.com` → IP سرور
-2. Proxy status: 🟠 **Proxied**
-3. SSL/TLS mode: **Full** (نه Strict)
-4. در کلاینت: آدرس = دامنه، SNI = دامنه، TLS = روشن
+| پروتکل | Transport | TLS | پورت |
+|--------|-----------|-----|------|
+| VLESS | WebSocket | TLS | 443 |
+| VLESS | WebSocket | TLS | 8443 |
+| VLESS | gRPC | TLS | 443 |
+| VLESS | TCP | TLS | 2053 |
+| VLESS | REALITY | REALITY | 443 |
+| VLESS | HTTPUpgrade | TLS | 8443 |
+| VMess | WebSocket | TLS | 443 |
+| VMess | WebSocket | TLS | 2083 |
+| VMess | gRPC | TLS | 443 |
+| VMess | TCP | TLS | 2053 |
+| Trojan | WebSocket | TLS | 443 |
+| Trojan | TCP | TLS | 443 |
+| Trojan | gRPC | TLS | 443 |
+| Shadowsocks | TCP | — | 8388 |
+| Shadowsocks | TCP | — | 8389 |
 
 ---
 
-## ⚠️ عیب‌یابی
+## پورت‌های Cloudflare CDN
+
+پورت‌هایی که Cloudflare پروکسی می‌کند:
+
+**HTTPS:** 443, 2053, 2083, 2087, 2096, 8443
+
+**HTTP:** 80, 8080, 8880, 2052, 2082, 2086, 2095
+
+---
+
+## تنظیمات Cloudflare
+
+برای استفاده از CDN کلادفلیر:
+
+1. رکورد A بسازید: `sub.example.com` → IP سرور
+2. Proxy Status: 🟠 Proxied
+3. SSL/TLS Mode: **Full** (نه Strict اگه self-signed دارید)
+
+---
+
+## عیب‌یابی
 
 **پنل باز نمی‌شود:**
 ```bash
 systemctl status masterpanel
-journalctl -u masterpanel -n 30
+journalctl -u masterpanel -n 50
 ```
 
-**Xray غیرفعال است:**
+**SSL نگرفت:**
 ```bash
-# دانلود geoip (اگر نصب نشده)
-wget -O /usr/local/bin/geoip.dat \
-  https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
-wget -O /usr/local/bin/geosite.dat \
-  https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
-
-systemctl restart xray
-systemctl status xray
+# مطمئن شوید پورت 80 باز است
+ufw allow 80/tcp
+# دامنه به IP سرور اشاره می‌کند
+dig +short sub.example.com
 ```
 
-**SSL خطا دارد:**
+**Xray اجرا نمی‌شود:**
 ```bash
-# چک DNS
-dig +short sub.domain.com
-
-# تمدید
-certbot renew --force-renewal -d sub.domain.com
+/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 ```
 
 ---
 
-## 📄 لایسنس
+## آپدیت
 
-MIT License — آزاد برای استفاده شخصی و تجاری
+```bash
+cd /tmp && mkdir mp_update && cd mp_update
+# فایل‌های جدید را آپلود کنید
+cp masterpanel.py /opt/masterpanel/
+cp index.html /opt/masterpanel/templates/
+systemctl restart masterpanel
+```
 
 ---
 
-<div align="center">
+## حذف
 
-**ساخته‌شده با ❤️ برای جامعه فارسی‌زبان**
-
-[گزارش مشکل](https://github.com/Masterv2panel/Masterpanel/issues) · [درخواست ویژگی](https://github.com/Masterv2panel/Masterpanel/issues)
-
-</div>
+```bash
+systemctl stop masterpanel
+systemctl disable masterpanel
+rm /etc/systemd/system/masterpanel.service
+rm -rf /opt/masterpanel
+systemctl daemon-reload
+```
