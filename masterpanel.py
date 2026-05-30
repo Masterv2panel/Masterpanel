@@ -535,7 +535,7 @@ def login_required(f):
     return decorated
 
 # ── Routes ────────────────────────────────────────────────────
-@app.route("/"); 
+@app.route("/")
 def index():
     if not session.get("logged_in"): return redirect(url_for("login_page"))
     return serve_html()
