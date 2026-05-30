@@ -218,6 +218,16 @@ cmd_install_hy2() {
     echo -e "${GREEN}[✓]${NC} Hysteria2 installed"
 }
 
+cmd_update() {
+    echo -e "${BLUE}[*]${NC} Updating MasterPanel from GitHub..."
+    GRAW="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
+    wget -q "$GRAW/masterpanel.py" -O /opt/masterpanel/masterpanel.py         && echo -e "${GREEN}[✓]${NC} masterpanel.py" || echo -e "${RED}[✗]${NC} masterpanel.py"
+    wget -q "$GRAW/index.html" -O /opt/masterpanel/templates/index.html         && echo -e "${GREEN}[✓]${NC} index.html" || echo -e "${RED}[✗]${NC} index.html"
+    wget -q "$GRAW/mp.sh" -O /opt/masterpanel/mp.sh && chmod +x /opt/masterpanel/mp.sh         && echo -e "${GREEN}[✓]${NC} mp.sh" || echo -e "${RED}[✗]${NC} mp.sh"
+    systemctl restart masterpanel && sleep 1
+    systemctl is-active --quiet masterpanel         && echo -e "${GREEN}[✓]${NC} Panel restarted"         || echo -e "${RED}[✗]${NC} Restart failed — check: journalctl -u masterpanel -n 20"
+}
+
 cmd_uninstall() {
     echo -e "${RED}[WARNING]${NC} This will remove MasterPanel completely."
     echo -ne "Are you sure? (yes/no): "
@@ -271,6 +281,7 @@ case "${1:-help}" in
     update-pass)  cmd_update_pass ;;
     install-tuic) cmd_install_tuic ;;
     install-hy2)  cmd_install_hy2 ;;
+    update)       cmd_update ;;
     uninstall)    cmd_uninstall ;;
     help|*)       cmd_help ;;
 esac

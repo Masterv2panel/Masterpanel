@@ -8,10 +8,21 @@ Protocols: VLESS, VMess, Trojan, Shadowsocks, TUIC, Hysteria2, ShadowTLS, NaiveP
 import os, json, uuid, subprocess, socket, ssl, time, base64, urllib.parse, secrets, string
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+from flask import Flask, request, jsonify, session, redirect, url_for, Response
 
-app = Flask(__name__)
-app.secret_key = os.urandom(32)
+app = Flask(__name__, static_folder=None)
+
+# Stable secret key — persisted to disk so sessions survive restarts
+_SECRET_FILE = Path("/opt/masterpanel/.secret_key")
+Path("/opt/masterpanel").mkdir(exist_ok=True)
+if _SECRET_FILE.exists():
+    app.secret_key = _SECRET_FILE.read_bytes()
+else:
+    import secrets as _sec
+    _key = _sec.token_bytes(32)
+    _SECRET_FILE.write_bytes(_key)
+    _SECRET_FILE.chmod(0o600)
+    app.secret_key = _key
 
 # ── Load config ───────────────────────────────────────────────
 PANEL_DIR    = Path("/opt/masterpanel")
@@ -38,6 +49,15 @@ XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
+
+CURRENT_VERSION = "3.5.0"
+GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
+
+def serve_html():
+    p = PANEL_DIR / "templates" / "index.html"
+    if p.exists():
+        return p.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return "<h1>index.html not found</h1>", 404
 
 # ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
@@ -788,6 +808,7 @@ def login_page():
         d = request.get_json() or {}
         if d.get("username") == PANEL_USER and d.get("password") == PANEL_PASS:
             session["logged_in"] = True
+            session.permanent = True
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": "نام کاربری یا رمز اشتباه است"})
     return serve_html()
@@ -926,9 +947,45 @@ def api_extra_configs():
         result[name] = f.read_text() if f.exists() else None
     return jsonify({"ok": True, "configs": result})
 
+
 # ── Run ───────────────────────────────────────────────────────
+@app.route("/api/update", methods=["POST"])
+def api_update():
+    if not session.get("logged_in"): return jsonify({"ok":False,"error":"Unauthorized"}),401
+    results = []
+    files = {
+        "masterpanel.py": PANEL_DIR / "masterpanel.py",
+        "index.html":     PANEL_DIR / "templates" / "index.html",
+    }
+    try:
+        import urllib.request as ur
+        for fname, dest in files.items():
+            req = ur.Request(f"{GITHUB_RAW}/{fname}", headers={"User-Agent":"MasterPanel/3.5"})
+            with ur.urlopen(req, timeout=15) as r:
+                dest.write_bytes(r.read())
+            results.append(f"OK: {fname}")
+        import subprocess as sp
+        sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
+        return jsonify({"ok":True,"results":results,"message":"آپدیت انجام شد — رفرش کنید"})
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e),"results":results})
+
+@app.route("/api/update/check")
+def api_update_check():
+    if not session.get("logged_in"): return jsonify({"ok":False}),401
+    try:
+        import urllib.request as ur
+        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel/3.5"})
+        with ur.urlopen(req, timeout=5) as r:
+            latest = r.read().decode().strip()
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
+    except:
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
+
 if __name__ == "__main__":
     import logging
+    from datetime import timedelta
+    app.permanent_session_lifetime = timedelta(days=30)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    print(f"[MasterPanel v2.0] Starting on port {PANEL_PORT}")
+    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on port {PANEL_PORT}")
     app.run(host="0.0.0.0", port=PANEL_PORT, debug=False)
