@@ -8,16 +8,10 @@ Protocols: VLESS, VMess, Trojan, Shadowsocks, TUIC, Hysteria2, ShadowTLS, NaiveP
 import os, json, uuid, subprocess, socket, ssl, time, base64, urllib.parse, secrets, string
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, request, jsonify, session, redirect, url_for, Response
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 
-app = Flask(__name__, static_folder=None)
-_SF = Path("/opt/masterpanel/.secret_key")
-Path("/opt/masterpanel").mkdir(exist_ok=True)
-if _SF.exists():
-    app.secret_key = _SF.read_bytes()
-else:
-    _k = secrets.token_bytes(32); _SF.write_bytes(_k); _SF.chmod(0o600)
-    app.secret_key = _k
+app = Flask(__name__)
+app.secret_key = os.urandom(32)
 
 # ── Load config ───────────────────────────────────────────────
 PANEL_DIR    = Path("/opt/masterpanel")
@@ -44,22 +38,6 @@ XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-USERS_FILE   = PANEL_DIR / "configs" / "users.json"
-CURRENT_VERSION = "3.5.0"
-GITHUB_RAW   = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
-
-def serve_html():
-    p = PANEL_DIR / "templates" / "index.html"
-    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type":"text/html; charset=utf-8"}
-    return "<h1>index.html not found</h1>", 404
-
-def load_users():
-    if USERS_FILE.exists():
-        try: return json.loads(USERS_FILE.read_text())
-        except: pass
-    return {}
-
-def save_users(u): USERS_FILE.write_text(json.dumps(u, indent=2, ensure_ascii=False))
 
 # ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
@@ -787,8 +765,6 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("logged_in"):
-            if request.path.startswith("/api/"):
-                return jsonify({"ok":False,"error":"Unauthorized"}), 401
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
@@ -950,193 +926,9 @@ def api_extra_configs():
         result[name] = f.read_text() if f.exists() else None
     return jsonify({"ok": True, "configs": result})
 
-# ── Users API ─────────────────────────────────────────────────
-@app.route("/api/users", methods=["GET"])
-@login_required
-def api_users_list():
-    return jsonify({"ok":True, "users":list(load_users().values())})
-
-@app.route("/api/users", methods=["POST"])
-@login_required
-def api_users_create():
-    d = request.get_json() or {}
-    name = d.get("name","").strip()
-    if not name: return jsonify({"ok":False,"error":"Name required"})
-    from datetime import timedelta
-    users = load_users(); uid = new_uuid()
-    expire_days = int(d.get("expire_days",0))
-    users[uid] = {
-        "id":uid,"name":name,"uuid":new_uuid(),"password":new_password(20),
-        "limit_gb":float(d.get("limit_gb",0)),
-        "expire_at":(datetime.now()+timedelta(days=expire_days)).strftime("%Y-%m-%d") if expire_days else "",
-        "created_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "enabled":True,"used_bytes":0,"configs":[]
-    }
-    save_users(users)
-    return jsonify({"ok":True,"user":users[uid]})
-
-@app.route("/api/users/<uid>", methods=["DELETE"])
-@login_required
-def api_users_delete(uid):
-    users = load_users()
-    if uid in users: del users[uid]; save_users(users)
-    return jsonify({"ok":True})
-
-@app.route("/api/users/<uid>", methods=["PATCH"])
-@login_required
-def api_users_update(uid):
-    d = request.get_json() or {}
-    users = load_users()
-    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
-    for k in ("name","limit_gb","expire_at","enabled"):
-        if k in d: users[uid][k] = d[k]
-    save_users(users)
-    return jsonify({"ok":True,"user":users[uid]})
-
-@app.route("/api/users/<uid>/generate", methods=["POST"])
-@login_required
-def api_user_generate(uid):
-    """Call generate_all_configs with user UUID/pass — EXACT same logic as working version."""
-    users = load_users()
-    if uid not in users: return jsonify({"ok":False,"error":"User not found"})
-    user = users[uid]
-
-    # Save original shared credentials
-    orig_configs = load_saved_configs()
-
-    # Generate using user's own credentials via generate_all_configs logic
-    # We do this by temporarily calling the same build functions
-    ip = get_server_ip()
-    configs = []; inbounds = []
-    u_uuid = user["uuid"]
-    u_pass = user["password"]
-    sfx = f"-{user['name']}"
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    reality_dests = [
-        {"dest":"www.google.com:443","sni":"www.google.com","fp":"chrome"},
-        {"dest":"www.apple.com:443","sni":"www.apple.com","fp":"safari"},
-        {"dest":"discord.com:443","sni":"discord.com","fp":"firefox"},
-        {"dest":"cdn.jsdelivr.net:443","sni":"cdn.jsdelivr.net","fp":"chrome"},
-    ]
-    for rd in reality_dests:
-        priv,pub = get_reality_keys()
-        rd["priv_key"]=priv; rd["pub_key"]=pub; rd["short_id"]=new_uuid()[:8]
-
-    cf_ports = [443,2053,2083,2087,2096,8443]
-
-    def add(name,proto,**kw):
-        cfg={"name":name,"protocol":proto,"created_at":ts,**kw}
-        if proto=="vless":         cfg["link"]=vless_link(cfg)
-        elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
-        elif proto=="trojan":      cfg["link"]=trojan_link(cfg)
-        elif proto=="shadowsocks": cfg["link"]=ss_link(cfg)
-        elif proto=="tuic":        cfg["link"]=tuic_link(cfg)
-        elif proto=="hysteria2":   cfg["link"]=hysteria2_link(cfg)
-        else: cfg["link"]=""
-        configs.append(cfg)
-        if proto in ("vless","vmess","trojan","shadowsocks"):
-            ib=build_inbound(cfg)
-            if ib: inbounds.append(ib)
-
-    # VLESS CF
-    for p in cf_ports:
-        add(f"VLESS-WS-TLS-CF-{p}{sfx}","vless",network="ws",tls="tls",port=p,path="/vless-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VLESS-gRPC-CF{sfx}","vless",network="grpc",tls="tls",port=443,service_name="vless-grpc",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VLESS-HTTPUpgrade-CF{sfx}","vless",network="httpupgrade",tls="tls",port=8443,path="/vless-hu",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    # VLESS IP
-    add(f"VLESS-TCP-TLS-IP{sfx}","vless",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-WS-TLS-IP{sfx}","vless",network="ws",tls="tls",port=8443,path="/vless-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-HTTPUpgrade-IP{sfx}","vless",network="httpupgrade",tls="tls",port=2087,path="/vless-hu",sni=DOMAIN,fp="edge",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-TCP-NOTLS-IP{sfx}","vless",network="tcp",tls="none",port=10086,sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    # VLESS REALITY
-    for rd in reality_dests:
-        lbl=rd["sni"].split(".")[1].upper()
-        add(f"VLESS-REALITY-{lbl}{sfx}","vless",network="tcp",tls="reality",port=443,sni=rd["sni"],fp=rd["fp"],flow="xtls-rprx-vision",address=ip,id=u_uuid,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
-    # VMess CF
-    for p in [443,2083,2087,8443]:
-        add(f"VMess-WS-TLS-CF-{p}{sfx}","vmess",network="ws",tls="tls",port=p,path="/vmess-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VMess-gRPC-CF{sfx}","vmess",network="grpc",tls="tls",port=443,service_name="vmess-grpc",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VMess-HTTPUpgrade-CF{sfx}","vmess",network="httpupgrade",tls="tls",port=2096,path="/vmess-hu",sni=DOMAIN,fp="firefox",address=DOMAIN,id=u_uuid,connection_type="domain")
-    # VMess IP
-    add(f"VMess-TCP-TLS-IP{sfx}","vmess",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VMess-WS-NOTLS-IP{sfx}","vmess",network="ws",tls="none",port=10087,path="/vmess-ws",sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VMess-HTTPUpgrade-IP{sfx}","vmess",network="httpupgrade",tls="tls",port=2082,path="/vmess-hu",sni=DOMAIN,fp="edge",address=ip,id=u_uuid,connection_type="direct_ip")
-    # Trojan CF
-    for p in [443,2096,8443]:
-        add(f"Trojan-WS-CF-{p}{sfx}","trojan",network="ws",tls="tls",port=p,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,password=u_pass,connection_type="domain")
-    add(f"Trojan-gRPC-CF{sfx}","trojan",network="grpc",tls="tls",port=443,service_name="trojan-grpc",sni=DOMAIN,fp="chrome",address=DOMAIN,password=u_pass,connection_type="domain")
-    # Trojan IP
-    add(f"Trojan-TCP-TLS-IP{sfx}","trojan",network="tcp",tls="tls",port=2096,sni=DOMAIN,fp="firefox",address=ip,password=u_pass,connection_type="direct_ip")
-    add(f"Trojan-WS-TLS-IP{sfx}","trojan",network="ws",tls="tls",port=8443,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=ip,password=u_pass,connection_type="direct_ip")
-    add(f"Trojan-HTTPUpgrade-IP{sfx}","trojan",network="httpupgrade",tls="tls",port=2053,path="/trojan-hu",sni=DOMAIN,fp="safari",address=ip,password=u_pass,connection_type="direct_ip")
-    rd=reality_dests[0]
-    add(f"Trojan-REALITY-IP{sfx}","trojan",network="tcp",tls="reality",port=8443,sni=rd["sni"],fp=rd["fp"],address=ip,password=u_pass,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
-    # SS
-    add(f"SS-chacha20{sfx}","shadowsocks",network="tcp",tls="none",port=8388,method="chacha20-ietf-poly1305",password=u_pass,address=ip,connection_type="direct_ip")
-    add(f"SS-aes256{sfx}","shadowsocks",network="tcp",tls="none",port=8389,method="aes-256-gcm",password=new_password(16),address=ip,connection_type="direct_ip")
-    # SS 2022
-    import base64 as _b64, secrets as _sec
-    ss2022_pw = _b64.b64encode(_sec.token_bytes(32)).decode()
-    add(f"SS-2022-blake3{sfx}","shadowsocks",network="tcp",tls="none",port=8390,method="2022-blake3-aes-256-gcm",password=ss2022_pw,address=ip,connection_type="direct_ip")
-    # TUIC
-    tuic_id=new_uuid(); tuic_pw=new_password(16)
-    add(f"TUIC-v5-IP{sfx}","tuic",network="udp",tls="tls",port=443,sni=DOMAIN,id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
-    # Hysteria2
-    hy2_pw=new_password(20)
-    add(f"Hysteria2-443{sfx}","hysteria2",network="udp",tls="tls",port=443,sni=DOMAIN,password=hy2_pw,address=ip,connection_type="direct_ip")
-    add(f"Hysteria2-8443{sfx}","hysteria2",network="udp",tls="tls",port=8443,sni=DOMAIN,password=hy2_pw,address=ip,connection_type="direct_ip")
-
-    write_xray_config(inbounds)
-    users[uid]["configs"]=configs
-    save_users(users)
-    return jsonify({"ok":True,"count":len(configs),"configs":configs})
-
-@app.route("/api/export/<uid>/<fmt>")
-@login_required
-def api_export_user(uid, fmt):
-    users=load_users()
-    if uid not in users: return jsonify({"ok":False})
-    raw=[c.get("link","") for c in users[uid].get("configs",[]) if c.get("link")]
-    import base64 as _b64
-    ct=_b64.b64encode("\n".join(raw).encode()).decode() if fmt=="b64" else "\n".join(raw)
-    fn=f"{users[uid]['name']}_{'sub_b64' if fmt=='b64' else 'links'}.txt"
-    return Response(ct,mimetype="text/plain",headers={"Content-Disposition":f"attachment; filename={fn}"})
-
-# ── Update API ─────────────────────────────────────────────────
-@app.route("/api/update", methods=["POST"])
-@login_required
-def api_update():
-    results=[]
-    try:
-        import urllib.request as ur
-        for fname,dest in [("masterpanel.py",PANEL_DIR/"masterpanel.py"),("index.html",PANEL_DIR/"templates"/"index.html")]:
-            req=ur.Request(f"{GITHUB_RAW}/{fname}",headers={"User-Agent":"MasterPanel/3.5"})
-            with ur.urlopen(req,timeout=15) as r: dest.write_bytes(r.read())
-            results.append(f"OK: {fname}")
-        import subprocess as sp
-        sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
-        return jsonify({"ok":True,"results":results,"message":"آپدیت انجام شد — رفرش کنید"})
-    except Exception as e:
-        return jsonify({"ok":False,"error":str(e),"results":results})
-
-@app.route("/api/update/check")
-@login_required
-def api_update_check():
-    try:
-        import urllib.request as ur
-        req=ur.Request(f"{GITHUB_RAW}/version.txt",headers={"User-Agent":"MasterPanel/3.5"})
-        with ur.urlopen(req,timeout=5) as r: latest=r.read().decode().strip()
-        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
-    except:
-        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
-
 # ── Run ───────────────────────────────────────────────────────
 if __name__ == "__main__":
     import logging
-    from datetime import timedelta
-    app.permanent_session_lifetime = timedelta(days=30)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on port {PANEL_PORT}")
+    print(f"[MasterPanel v2.0] Starting on port {PANEL_PORT}")
     app.run(host="0.0.0.0", port=PANEL_PORT, debug=False)
-
