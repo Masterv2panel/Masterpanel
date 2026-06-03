@@ -4,8 +4,6 @@
 #   Protocols: Xray + TUIC v5 + Hysteria2
 # ============================================================
 
-set -e
-
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; WHITE='\033[1;37m'; NC='\033[0m'
 
@@ -34,8 +32,12 @@ check_root() {
 }
 
 check_os() {
-    [[ -f /etc/os-release ]] && . /etc/os-release || { log_error "Cannot detect OS"; exit 1; }
-    log_info "OS: $NAME $VERSION_ID"
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        log_info "OS: ${NAME:-Linux} ${VERSION_ID:-}"
+    else
+        log_warn "Cannot detect OS — continuing anyway"
+    fi
 }
 
 get_user_input() {
