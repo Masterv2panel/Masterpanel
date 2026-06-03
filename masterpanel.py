@@ -44,22 +44,13 @@ XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-USERS_FILE = PANEL_DIR / "configs" / "users.json"
-CURRENT_VERSION = "3.5.0"
+CURRENT_VERSION = "4.0.0"
 GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
 def serve_html():
     p = PANEL_DIR / "templates" / "index.html"
-    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type":"text/html; charset=utf-8"}
     return "<h1>index.html not found</h1>", 404
-
-def load_users():
-    if USERS_FILE.exists():
-        try: return json.loads(USERS_FILE.read_text())
-        except: pass
-    return {}
-
-def save_users(u): USERS_FILE.write_text(json.dumps(u, indent=2, ensure_ascii=False))
 
 # ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
@@ -251,266 +242,129 @@ def generate_all_configs():
     # CF-supported HTTPS ports
     cf_ports = [443, 2053, 2083, 2087, 2096, 8443]
 
+    # ── SNI list — open in Iran ───────────────────────────────
+    sni_list = [
+        {"sni": DOMAIN,                          "fp": "chrome",  "label": "Domain"},
+        {"sni": "www.google.com",                "fp": "chrome",  "label": "Google"},
+        {"sni": "www.apple.com",                 "fp": "safari",  "label": "Apple"},
+        {"sni": "chat.openai.com",               "fp": "chrome",  "label": "ChatGPT"},
+        {"sni": "www.sony.com",                  "fp": "chrome",  "label": "Sony"},
+        {"sni": "www.cloudflare.com",            "fp": "chrome",  "label": "Cloudflare"},
+        {"sni": "cdn.discordapp.com",            "fp": "firefox", "label": "Discord"},
+        {"sni": "www.speedtest.net",             "fp": "chrome",  "label": "Speedtest"},
+        {"sni": "cdn.jsdelivr.net",              "fp": "chrome",  "label": "jsDelivr"},
+        {"sni": "static.cloudflareinsights.com","fp": "chrome",  "label": "CF-Insights"},
+        {"sni": "ajax.cloudflare.com",           "fp": "chrome",  "label": "CF-Ajax"},
+    ]
+
+    # ── Clean Cloudflare IPs ──────────────────────────────────
+    cf_clean_ips = [
+        "104.16.0.1","104.17.0.1","104.18.0.1","104.19.0.1","104.20.0.1",
+        "104.21.0.1","104.22.0.1","172.64.0.1","172.65.0.1","172.66.0.1",
+        "162.159.0.1","162.159.36.1","162.159.46.1",
+        "188.114.96.1","188.114.97.1",
+    ]
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # VLESS — Domain / CDN
+    # VLESS — CF/CDN + IP + REALITY + SNI های مختلف
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     for port in cf_ports:
-        configs.append({
-            "name": f"VLESS-WS-TLS-CF-{port}",
-            "protocol": "vless", "network": "ws", "tls": "tls",
-            "port": port, "path": "/vless-ws", "sni": DOMAIN,
-            "fp": "chrome", "address": DOMAIN, "id": shared["vless_id"],
-            "connection_type": "domain",
-        })
-
-    configs.append({
-        "name": "VLESS-gRPC-TLS-CF",
-        "protocol": "vless", "network": "grpc", "tls": "tls",
-        "port": 443, "service_name": "vless-grpc", "sni": DOMAIN,
-        "fp": "chrome", "address": DOMAIN, "id": shared["vless_id"],
-        "connection_type": "domain",
-    })
-
-    configs.append({
-        "name": "VLESS-HTTPUpgrade-TLS-CF",
-        "protocol": "vless", "network": "httpupgrade", "tls": "tls",
-        "port": 8443, "path": "/vless-hu", "sni": DOMAIN,
-        "fp": "chrome", "address": DOMAIN, "id": shared["vless_id"],
-        "connection_type": "domain",
-    })
-
-    # VLESS — Direct IP
-    configs.append({
-        "name": "VLESS-TCP-TLS-IP",
-        "protocol": "vless", "network": "tcp", "tls": "tls",
-        "port": 2053, "sni": DOMAIN, "fp": "safari",
-        "address": ip, "id": shared["vless_id"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "VLESS-WS-TLS-IP",
-        "protocol": "vless", "network": "ws", "tls": "tls",
-        "port": 8443, "path": "/vless-ws", "sni": DOMAIN,
-        "fp": "chrome", "address": ip, "id": shared["vless_id"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "VLESS-HTTPUpgrade-TLS-IP",
-        "protocol": "vless", "network": "httpupgrade", "tls": "tls",
-        "port": 2087, "path": "/vless-hu", "sni": DOMAIN,
-        "fp": "edge", "address": ip, "id": shared["vless_id"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "VLESS-TCP-NOTLS-IP",
-        "protocol": "vless", "network": "tcp", "tls": "none",
-        "port": 10086, "sni": "", "fp": "chrome",
-        "address": ip, "id": shared["vless_id"],
-        "connection_type": "direct_ip",
-    })
-
-    # VLESS + REALITY — 4 different destinations
-    for i, rd in enumerate(reality_dests):
-        cfg = {
-            "name": f"VLESS-REALITY-{rd['sni'].split('.')[1].upper()}-IP",
-            "protocol": "vless", "network": "tcp", "tls": "reality",
-            "port": 443, "sni": rd["sni"], "fp": rd["fp"],
-            "flow": "xtls-rprx-vision", "address": ip,
-            "id": shared["vless_id"],
-            "reality_dest": rd["dest"],
-            "priv_key": rd["priv_key"],
-            "public_key": rd["pub_key"],
-            "short_id": rd["short_id"],
-            "connection_type": "direct_ip",
-        }
-        configs.append(cfg)
+        configs.append({"name":f"VLESS-WS-CF-{port}","protocol":"vless","network":"ws","tls":"tls","port":port,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:5]:
+        for cf_ip in cf_clean_ips[:4]:
+            configs.append({"name":f"VLESS-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}","protocol":"vless","network":"ws","tls":"tls","port":443,"path":"/vless-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":cf_ip,"id":shared["vless_id"],"connection_type":"cf_ip"})
+    for sni_info in sni_list[:5]:
+        configs.append({"name":f"VLESS-gRPC-{sni_info['label']}","protocol":"vless","network":"grpc","tls":"tls","port":443,"service_name":"vless-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    for sni_info in sni_list[:4]:
+        configs.append({"name":f"VLESS-HU-{sni_info['label']}-8443","protocol":"vless","network":"httpupgrade","tls":"tls","port":8443,"path":"/vless-hu","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    configs.append({"name":"VLESS-TCP-TLS-IP-2053","protocol":"vless","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VLESS-WS-TLS-IP-8443","protocol":"vless","network":"ws","tls":"tls","port":8443,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VLESS-HU-TLS-IP-2087","protocol":"vless","network":"httpupgrade","tls":"tls","port":2087,"path":"/vless-hu","sni":DOMAIN,"fp":"edge","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VLESS-TCP-NOTLS-IP-10086","protocol":"vless","network":"tcp","tls":"none","port":10086,"sni":"","fp":"chrome","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+    for rd in reality_dests:
+        lbl = rd["sni"].split(".")[-2].upper()
+        configs.append({"name":f"VLESS-REALITY-{lbl}-Vision","protocol":"vless","network":"tcp","tls":"reality","port":443,"sni":rd["sni"],"fp":rd["fp"],"flow":"xtls-rprx-vision","address":ip,"id":shared["vless_id"],"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip"})
+    rd2=reality_dests[1]; configs.append({"name":"VLESS-REALITY-Apple-8443","protocol":"vless","network":"tcp","tls":"reality","port":8443,"sni":rd2["sni"],"fp":"safari","flow":"xtls-rprx-vision","address":ip,"id":shared["vless_id"],"reality_dest":rd2["dest"],"priv_key":rd2["priv_key"],"public_key":rd2["pub_key"],"short_id":rd2["short_id"],"connection_type":"direct_ip"})
+    rd3=reality_dests[2]; configs.append({"name":"VLESS-REALITY-Discord-2053","protocol":"vless","network":"tcp","tls":"reality","port":2053,"sni":rd3["sni"],"fp":"firefox","flow":"xtls-rprx-vision","address":ip,"id":shared["vless_id"],"reality_dest":rd3["dest"],"priv_key":rd3["priv_key"],"public_key":rd3["pub_key"],"short_id":rd3["short_id"],"connection_type":"direct_ip"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # VMess — Domain / CDN
+    # VMess — CF/CDN + IP + SNI های مختلف
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    for port in [443, 2083, 2087, 8443]:
-        configs.append({
-            "name": f"VMess-WS-TLS-CF-{port}",
-            "protocol": "vmess", "network": "ws", "tls": "tls",
-            "port": port, "path": "/vmess-ws", "sni": DOMAIN,
-            "fp": "chrome", "address": DOMAIN, "id": shared["vmess_id"],
-            "connection_type": "domain",
-        })
-
-    configs.append({
-        "name": "VMess-gRPC-TLS-CF",
-        "protocol": "vmess", "network": "grpc", "tls": "tls",
-        "port": 443, "service_name": "vmess-grpc", "sni": DOMAIN,
-        "fp": "chrome", "address": DOMAIN, "id": shared["vmess_id"],
-        "connection_type": "domain",
-    })
-    configs.append({
-        "name": "VMess-HTTPUpgrade-TLS-CF",
-        "protocol": "vmess", "network": "httpupgrade", "tls": "tls",
-        "port": 2096, "path": "/vmess-hu", "sni": DOMAIN,
-        "fp": "firefox", "address": DOMAIN, "id": shared["vmess_id"],
-        "connection_type": "domain",
-    })
-
-    # VMess — Direct IP
-    configs.append({
-        "name": "VMess-TCP-TLS-IP",
-        "protocol": "vmess", "network": "tcp", "tls": "tls",
-        "port": 2053, "sni": DOMAIN, "fp": "safari",
-        "address": ip, "id": shared["vmess_id"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "VMess-WS-NOTLS-IP",
-        "protocol": "vmess", "network": "ws", "tls": "none",
-        "port": 10087, "path": "/vmess-ws", "sni": "",
-        "fp": "chrome", "address": ip, "id": shared["vmess_id"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "VMess-HTTPUpgrade-TLS-IP",
-        "protocol": "vmess", "network": "httpupgrade", "tls": "tls",
-        "port": 2082, "path": "/vmess-hu", "sni": DOMAIN,
-        "fp": "edge", "address": ip, "id": shared["vmess_id"],
-        "connection_type": "direct_ip",
-    })
+    for port in cf_ports:
+        configs.append({"name":f"VMess-WS-CF-{port}","protocol":"vmess","network":"ws","tls":"tls","port":port,"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:5]:
+        for cf_ip in cf_clean_ips[4:8]:
+            configs.append({"name":f"VMess-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}","protocol":"vmess","network":"ws","tls":"tls","port":443,"path":"/vmess-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":cf_ip,"id":shared["vmess_id"],"connection_type":"cf_ip"})
+    for sni_info in sni_list[:4]:
+        configs.append({"name":f"VMess-gRPC-{sni_info['label']}","protocol":"vmess","network":"grpc","tls":"tls","port":443,"service_name":"vmess-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+    for port in [2096,8443,2053]:
+        configs.append({"name":f"VMess-HU-CF-{port}","protocol":"vmess","network":"httpupgrade","tls":"tls","port":port,"path":"/vmess-hu","sni":DOMAIN,"fp":"firefox","address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+    configs.append({"name":"VMess-TCP-TLS-IP-2053","protocol":"vmess","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VMess-WS-TLS-IP-8443","protocol":"vmess","network":"ws","tls":"tls","port":8443,"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VMess-WS-NOTLS-IP-10087","protocol":"vmess","network":"ws","tls":"none","port":10087,"path":"/vmess-ws","sni":"","fp":"chrome","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
+    configs.append({"name":"VMess-HU-TLS-IP-2082","protocol":"vmess","network":"httpupgrade","tls":"tls","port":2082,"path":"/vmess-hu","sni":DOMAIN,"fp":"edge","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Trojan — Domain / CDN
+    # Trojan — CF/CDN + IP + REALITY + SNI های مختلف
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    for port in [443, 2096, 8443]:
-        configs.append({
-            "name": f"Trojan-WS-TLS-CF-{port}",
-            "protocol": "trojan", "network": "ws", "tls": "tls",
-            "port": port, "path": "/trojan-ws", "sni": DOMAIN,
-            "fp": "chrome", "address": DOMAIN, "password": shared["trojan_pw"],
-            "connection_type": "domain",
-        })
-
-    configs.append({
-        "name": "Trojan-gRPC-TLS-CF",
-        "protocol": "trojan", "network": "grpc", "tls": "tls",
-        "port": 443, "service_name": "trojan-grpc", "sni": DOMAIN,
-        "fp": "chrome", "address": DOMAIN, "password": shared["trojan_pw"],
-        "connection_type": "domain",
-    })
-
-    # Trojan — Direct IP
-    configs.append({
-        "name": "Trojan-TCP-TLS-IP",
-        "protocol": "trojan", "network": "tcp", "tls": "tls",
-        "port": 2096, "sni": DOMAIN, "fp": "firefox",
-        "address": ip, "password": shared["trojan_pw"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "Trojan-WS-TLS-IP",
-        "protocol": "trojan", "network": "ws", "tls": "tls",
-        "port": 8443, "path": "/trojan-ws", "sni": DOMAIN,
-        "fp": "chrome", "address": ip, "password": shared["trojan_pw"],
-        "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "Trojan-HTTPUpgrade-TLS-IP",
-        "protocol": "trojan", "network": "httpupgrade", "tls": "tls",
-        "port": 2053, "path": "/trojan-hu", "sni": DOMAIN,
-        "fp": "safari", "address": ip, "password": shared["trojan_pw"],
-        "connection_type": "direct_ip",
-    })
-
-    # Trojan + REALITY
-    rd = reality_dests[0]
-    configs.append({
-        "name": "Trojan-REALITY-IP",
-        "protocol": "trojan", "network": "tcp", "tls": "reality",
-        "port": 8443, "sni": rd["sni"], "fp": rd["fp"],
-        "address": ip, "password": shared["trojan_pw"],
-        "reality_dest": rd["dest"],
-        "priv_key": rd["priv_key"],
-        "public_key": rd["pub_key"],
-        "short_id": rd["short_id"],
-        "connection_type": "direct_ip",
-    })
+    for port in cf_ports:
+        configs.append({"name":f"Trojan-WS-CF-{port}","protocol":"trojan","network":"ws","tls":"tls","port":port,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    for sni_info in sni_list[1:4]:
+        configs.append({"name":f"Trojan-WS-{sni_info['label']}-443","protocol":"trojan","network":"ws","tls":"tls","port":443,"path":"/trojan-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    for sni_info in sni_list[:4]:
+        configs.append({"name":f"Trojan-gRPC-{sni_info['label']}","protocol":"trojan","network":"grpc","tls":"tls","port":443,"service_name":"trojan-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    for sni_info in sni_list[:3]:
+        configs.append({"name":f"Trojan-HU-{sni_info['label']}-8443","protocol":"trojan","network":"httpupgrade","tls":"tls","port":8443,"path":"/trojan-hu","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    configs.append({"name":"Trojan-TCP-TLS-IP-2096","protocol":"trojan","network":"tcp","tls":"tls","port":2096,"sni":DOMAIN,"fp":"firefox","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+    configs.append({"name":"Trojan-WS-TLS-IP-8443","protocol":"trojan","network":"ws","tls":"tls","port":8443,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+    configs.append({"name":"Trojan-HU-TLS-IP-2053","protocol":"trojan","network":"httpupgrade","tls":"tls","port":2053,"path":"/trojan-hu","sni":DOMAIN,"fp":"safari","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+    configs.append({"name":"Trojan-TCP-TLS-IP-2083","protocol":"trojan","network":"tcp","tls":"tls","port":2083,"sni":DOMAIN,"fp":"chrome","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+    for rd in reality_dests[:4]:
+        lbl=rd["sni"].split(".")[-2].upper()
+        configs.append({"name":f"Trojan-REALITY-{lbl}","protocol":"trojan","network":"tcp","tls":"reality","port":443,"sni":rd["sni"],"fp":rd["fp"],"address":ip,"password":shared["trojan_pw"],"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Shadowsocks — Direct IP
+    # Shadowsocks + ShadowTLS
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    ss_variants = [
-        {"name": "SS-chacha20-IP",    "method": "chacha20-ietf-poly1305", "port": 8388, "password": shared["ss_pw_chacha"]},
-        {"name": "SS-aes256-IP",      "method": "aes-256-gcm",            "port": 8389, "password": shared["ss_pw_aes"]},
-        {"name": "SS-2022-blake3-IP", "method": "2022-blake3-aes-256-gcm","port": 8390, "password": base64.b64encode(secrets.token_bytes(32)).decode()},
-    ]
-    for sv in ss_variants:
-        configs.append({
-            "protocol": "shadowsocks", "address": ip,
-            "connection_type": "direct_ip", **sv
-        })
-
-    # ShadowTLS (SS over fake TLS)
-    configs.append({
-        "name": "SS-ShadowTLS-IP",
-        "protocol": "shadowsocks", "network": "tcp", "tls": "shadowtls",
-        "port": 8391, "method": "chacha20-ietf-poly1305",
-        "password": shared["ss_pw_stls"],
-        "shadowtls_password": new_password(20),
-        "shadowtls_sni": "www.apple.com",
-        "address": ip, "connection_type": "direct_ip",
-        "note": "Requires ShadowTLS wrapper"
-    })
+    ss_pw2=base64.b64encode(secrets.token_bytes(32)).decode()
+    ss_pw3=base64.b64encode(secrets.token_bytes(16)).decode()
+    for sv in [
+        {"name":"SS-chacha20-IP",    "method":"chacha20-ietf-poly1305",  "port":8388,"password":shared["ss_pw_chacha"]},
+        {"name":"SS-aes256-IP",      "method":"aes-256-gcm",             "port":8389,"password":shared["ss_pw_aes"]},
+        {"name":"SS-2022-blake3-IP", "method":"2022-blake3-aes-256-gcm", "port":8390,"password":ss_pw2},
+        {"name":"SS-2022-aes128-IP", "method":"2022-blake3-aes-128-gcm", "port":8393,"password":ss_pw3},
+    ]:
+        configs.append({"protocol":"shadowsocks","address":ip,"connection_type":"direct_ip",**sv})
+    for idx2,sni_stls in enumerate(["www.apple.com","www.google.com","www.sony.com","cdn.discordapp.com"]):
+        lbl_stls=sni_stls.split(".")[-2].capitalize()
+        configs.append({"name":f"SS-ShadowTLS-{lbl_stls}","protocol":"shadowsocks","network":"tcp","tls":"shadowtls","port":8391+idx2,"method":"chacha20-ietf-poly1305","password":shared["ss_pw_stls"],"shadowtls_password":new_password(20),"shadowtls_sni":sni_stls,"address":ip,"connection_type":"direct_ip","note":"Requires ShadowTLS wrapper"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # TUIC v5 — Direct IP + CF ports
+    # TUIC v5 — چند پورت + SNI + CF IP
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    for port, addr, ctype in [(443, ip, "direct_ip"), (2096, DOMAIN, "domain")]:
-        configs.append({
-            "name": f"TUIC-v5-{'IP' if ctype=='direct_ip' else 'CF'}-{port}",
-            "protocol": "tuic", "network": "udp", "tls": "tls",
-            "port": port, "sni": DOMAIN,
-            "id": shared["tuic_id"], "password": shared["tuic_pw"],
-            "address": addr, "connection_type": ctype,
-            "congestion": "bbr",
-        })
+    for port,addr,ctype,label in [(443,ip,"direct_ip","IP-443"),(8443,ip,"direct_ip","IP-8443"),(2053,ip,"direct_ip","IP-2053"),(443,DOMAIN,"domain","CF-Domain"),(2096,DOMAIN,"domain","CF-2096")]:
+        configs.append({"name":f"TUIC-v5-{label}","protocol":"tuic","network":"udp","tls":"tls","port":port,"sni":DOMAIN,"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":addr,"connection_type":ctype,"congestion":"bbr"})
+    for sni_info in sni_list[1:5]:
+        configs.append({"name":f"TUIC-v5-{sni_info['label']}","protocol":"tuic","network":"udp","tls":"tls","port":443,"sni":sni_info["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":ip,"connection_type":"direct_ip","congestion":"bbr"})
+    for cf_ip in cf_clean_ips[:3]:
+        configs.append({"name":f"TUIC-v5-CFIP-{cf_ip.split('.')[-1]}","protocol":"tuic","network":"udp","tls":"tls","port":443,"sni":sni_list[1]["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":cf_ip,"connection_type":"cf_ip","congestion":"bbr"})
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Hysteria2 — Direct IP + CF ports
+    # Hysteria2 — چند پورت + SNI + Obfs + CF IP
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    configs.append({
-        "name": "Hysteria2-IP-443",
-        "protocol": "hysteria2", "network": "udp", "tls": "tls",
-        "port": 443, "sni": DOMAIN,
-        "password": shared["hy2_pw"],
-        "address": ip, "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "Hysteria2-IP-8443",
-        "protocol": "hysteria2", "network": "udp", "tls": "tls",
-        "port": 8443, "sni": DOMAIN,
-        "password": shared["hy2_pw"],
-        "address": ip, "connection_type": "direct_ip",
-    })
-    configs.append({
-        "name": "Hysteria2-IP-Obfs",
-        "protocol": "hysteria2", "network": "udp", "tls": "tls",
-        "port": 19999, "sni": DOMAIN,
-        "password": shared["hy2_pw"],
-        "obfs": "salamander", "obfs_password": new_password(16),
-        "address": ip, "connection_type": "direct_ip",
-    })
+    hy2_obfs_pw=new_password(16)
+    for port,sni_info in [(443,sni_list[0]),(8443,sni_list[1]),(2053,sni_list[2]),(2096,sni_list[3]),(2083,sni_list[4])]:
+        configs.append({"name":f"Hysteria2-{sni_info['label']}-{port}","protocol":"hysteria2","network":"udp","tls":"tls","port":port,"sni":sni_info["sni"],"password":shared["hy2_pw"],"address":ip,"connection_type":"direct_ip"})
+    configs.append({"name":"Hysteria2-Obfs-19999","protocol":"hysteria2","network":"udp","tls":"tls","port":19999,"sni":DOMAIN,"password":shared["hy2_pw"],"obfs":"salamander","obfs_password":hy2_obfs_pw,"address":ip,"connection_type":"direct_ip"})
+    configs.append({"name":"Hysteria2-Obfs-8444","protocol":"hysteria2","network":"udp","tls":"tls","port":8444,"sni":sni_list[1]["sni"],"password":shared["hy2_pw"],"obfs":"salamander","obfs_password":hy2_obfs_pw,"address":ip,"connection_type":"direct_ip"})
+    configs.append({"name":"Hysteria2-CF-Domain","protocol":"hysteria2","network":"udp","tls":"tls","port":443,"sni":DOMAIN,"password":shared["hy2_pw"],"address":DOMAIN,"connection_type":"domain"})
+    for cf_ip in cf_clean_ips[:5]:
+        configs.append({"name":f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}","protocol":"hysteria2","network":"udp","tls":"tls","port":443,"sni":sni_list[1]["sni"],"password":shared["hy2_pw"],"address":cf_ip,"connection_type":"cf_ip"})
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # WireGuard — Direct IP (via Xray outbound style)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    configs.append({
-        "name": "WireGuard-IP-51820",
-        "protocol": "wireguard", "network": "udp", "tls": "none",
-        "port": 51820, "sni": "",
-        "private_key": shared["wg_pk"],
-        "address": ip, "connection_type": "direct_ip",
-        "note": "Requires WireGuard client config — see panel for details",
-    })
+    # WireGuard
+    configs.append({"name":"WireGuard-IP-51820","protocol":"wireguard","network":"udp","tls":"none","port":51820,"sni":"","private_key":shared["wg_pk"],"address":ip,"connection_type":"direct_ip","note":"Requires WireGuard client config"})
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Build links + timestamps
+        # Build links + timestamps
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     for cfg in configs:
         cfg["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -788,7 +642,7 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if not session.get("logged_in"):
             if request.path.startswith("/api/"):
-                return jsonify({"ok": False, "error": "Unauthorized"}), 401
+                return jsonify({"ok":False,"error":"Unauthorized"}), 401
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
@@ -950,164 +804,17 @@ def api_extra_configs():
         result[name] = f.read_text() if f.exists() else None
     return jsonify({"ok": True, "configs": result})
 
-# ── Users API ─────────────────────────────────────────────────
-@app.route("/api/users", methods=["GET"])
-@login_required
-def api_users_list():
-    return jsonify({"ok": True, "users": list(load_users().values())})
-
-@app.route("/api/users", methods=["POST"])
-@login_required
-def api_users_create():
-    d = request.get_json() or {}
-    name = d.get("name","").strip()
-    if not name: return jsonify({"ok":False,"error":"Name required"})
-    from datetime import timedelta
-    users = load_users(); uid = new_uuid()
-    expire_days = int(d.get("expire_days",0))
-    users[uid] = {
-        "id":uid,"name":name,"uuid":new_uuid(),"password":new_password(20),
-        "limit_gb":float(d.get("limit_gb",0)),
-        "expire_at":(datetime.now()+timedelta(days=expire_days)).strftime("%Y-%m-%d") if expire_days else "",
-        "created_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "enabled":True,"used_bytes":0,"configs":[]
-    }
-    save_users(users)
-    return jsonify({"ok":True,"user":users[uid]})
-
-@app.route("/api/users/<uid>", methods=["DELETE"])
-@login_required
-def api_users_delete(uid):
-    users = load_users()
-    if uid in users: del users[uid]; save_users(users)
-    return jsonify({"ok":True})
-
-@app.route("/api/users/<uid>", methods=["PATCH"])
-@login_required
-def api_users_update(uid):
-    d = request.get_json() or {}
-    users = load_users()
-    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
-    for k in ("name","limit_gb","expire_at","enabled"):
-        if k in d: users[uid][k] = d[k]
-    save_users(users)
-    return jsonify({"ok":True,"user":users[uid]})
-
-@app.route("/api/users/<uid>/generate", methods=["POST"])
-@login_required
-def api_user_generate(uid):
-    """Generate configs for user — uses EXACT same logic as generate_all_configs
-    but with user's own UUID/password, then writes all to Xray."""
-    users = load_users()
-    if uid not in users: return jsonify({"ok":False,"error":"User not found"})
-    user = users[uid]
-
-    # Temporarily patch shared credentials then call generate_all_configs logic
-    ip = get_server_ip()
-    configs = []
-    inbounds = []
-    u_uuid = user["uuid"]
-    u_pass = user["password"]
-    sfx = f"-{user['name']}"
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    reality_dests = [
-        {"dest":"www.google.com:443","sni":"www.google.com","fp":"chrome"},
-        {"dest":"www.apple.com:443","sni":"www.apple.com","fp":"safari"},
-        {"dest":"discord.com:443","sni":"discord.com","fp":"firefox"},
-        {"dest":"cdn.jsdelivr.net:443","sni":"cdn.jsdelivr.net","fp":"chrome"},
-    ]
-    for rd in reality_dests:
-        priv,pub = get_reality_keys()
-        rd["priv_key"]=priv; rd["pub_key"]=pub; rd["short_id"]=new_uuid()[:8]
-
-    cf_ports = [443,2053,2083,2087,2096,8443]
-
-    # VLESS CF
-    for p in cf_ports:
-        configs.append({"name":f"VLESS-WS-TLS-CF-{p}{sfx}","protocol":"vless","network":"ws","tls":"tls","port":p,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    configs.append({"name":f"VLESS-gRPC-TLS-CF{sfx}","protocol":"vless","network":"grpc","tls":"tls","port":443,"service_name":"vless-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    configs.append({"name":f"VLESS-HTTPUpgrade-CF{sfx}","protocol":"vless","network":"httpupgrade","tls":"tls","port":8443,"path":"/vless-hu","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    # VLESS IP
-    configs.append({"name":f"VLESS-TCP-TLS-IP{sfx}","protocol":"vless","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"VLESS-WS-TLS-IP{sfx}","protocol":"vless","network":"ws","tls":"tls","port":8443,"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"VLESS-HTTPUpgrade-IP{sfx}","protocol":"vless","network":"httpupgrade","tls":"tls","port":2087,"path":"/vless-hu","sni":DOMAIN,"fp":"edge","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"VLESS-TCP-NOTLS-IP{sfx}","protocol":"vless","network":"tcp","tls":"none","port":10086,"sni":"","fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    # VLESS REALITY
-    for rd in reality_dests:
-        lbl=rd["sni"].split(".")[1].upper()
-        configs.append({"name":f"VLESS-REALITY-{lbl}{sfx}","protocol":"vless","network":"tcp","tls":"reality","port":443,"sni":rd["sni"],"fp":rd["fp"],"flow":"xtls-rprx-vision","address":ip,"id":u_uuid,"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip","created_at":ts})
-    # VMess CF
-    for p in [443,2083,2087,8443]:
-        configs.append({"name":f"VMess-WS-TLS-CF-{p}{sfx}","protocol":"vmess","network":"ws","tls":"tls","port":p,"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    configs.append({"name":f"VMess-gRPC-CF{sfx}","protocol":"vmess","network":"grpc","tls":"tls","port":443,"service_name":"vmess-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    configs.append({"name":f"VMess-HTTPUpgrade-CF{sfx}","protocol":"vmess","network":"httpupgrade","tls":"tls","port":2096,"path":"/vmess-hu","sni":DOMAIN,"fp":"firefox","address":DOMAIN,"id":u_uuid,"connection_type":"domain","created_at":ts})
-    # VMess IP
-    configs.append({"name":f"VMess-TCP-TLS-IP{sfx}","protocol":"vmess","network":"tcp","tls":"tls","port":2053,"sni":DOMAIN,"fp":"safari","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"VMess-WS-NOTLS-IP{sfx}","protocol":"vmess","network":"ws","tls":"none","port":10087,"path":"/vmess-ws","sni":"","fp":"chrome","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"VMess-HTTPUpgrade-IP{sfx}","protocol":"vmess","network":"httpupgrade","tls":"tls","port":2082,"path":"/vmess-hu","sni":DOMAIN,"fp":"edge","address":ip,"id":u_uuid,"connection_type":"direct_ip","created_at":ts})
-    # Trojan CF
-    for p in [443,2096,8443]:
-        configs.append({"name":f"Trojan-WS-CF-{p}{sfx}","protocol":"trojan","network":"ws","tls":"tls","port":p,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":u_pass,"connection_type":"domain","created_at":ts})
-    configs.append({"name":f"Trojan-gRPC-CF{sfx}","protocol":"trojan","network":"grpc","tls":"tls","port":443,"service_name":"trojan-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":u_pass,"connection_type":"domain","created_at":ts})
-    # Trojan IP
-    configs.append({"name":f"Trojan-TCP-TLS-IP{sfx}","protocol":"trojan","network":"tcp","tls":"tls","port":2096,"sni":DOMAIN,"fp":"firefox","address":ip,"password":u_pass,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"Trojan-WS-TLS-IP{sfx}","protocol":"trojan","network":"ws","tls":"tls","port":8443,"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":ip,"password":u_pass,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"Trojan-HTTPUpgrade-IP{sfx}","protocol":"trojan","network":"httpupgrade","tls":"tls","port":2053,"path":"/trojan-hu","sni":DOMAIN,"fp":"safari","address":ip,"password":u_pass,"connection_type":"direct_ip","created_at":ts})
-    # Trojan REALITY
-    rd=reality_dests[0]
-    configs.append({"name":f"Trojan-REALITY-IP{sfx}","protocol":"trojan","network":"tcp","tls":"reality","port":8443,"sni":rd["sni"],"fp":rd["fp"],"address":ip,"password":u_pass,"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip","created_at":ts})
-    # SS
-    configs.append({"name":f"SS-chacha20{sfx}","protocol":"shadowsocks","network":"tcp","tls":"none","port":8388,"method":"chacha20-ietf-poly1305","password":u_pass,"address":ip,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"SS-aes256{sfx}","protocol":"shadowsocks","network":"tcp","tls":"none","port":8389,"method":"aes-256-gcm","password":new_password(16),"address":ip,"connection_type":"direct_ip","created_at":ts})
-    # TUIC
-    tuic_id=new_uuid(); tuic_pw=new_password(16)
-    configs.append({"name":f"TUIC-v5-IP{sfx}","protocol":"tuic","network":"udp","tls":"tls","port":443,"sni":DOMAIN,"id":tuic_id,"password":tuic_pw,"address":ip,"connection_type":"direct_ip","congestion":"bbr","created_at":ts})
-    # Hysteria2
-    hy2_pw=new_password(20)
-    configs.append({"name":f"Hysteria2-443{sfx}","protocol":"hysteria2","network":"udp","tls":"tls","port":443,"sni":DOMAIN,"password":hy2_pw,"address":ip,"connection_type":"direct_ip","created_at":ts})
-    configs.append({"name":f"Hysteria2-8443{sfx}","protocol":"hysteria2","network":"udp","tls":"tls","port":8443,"sni":DOMAIN,"password":hy2_pw,"address":ip,"connection_type":"direct_ip","created_at":ts})
-
-    # Build links using exact same functions
-    for cfg in configs:
-        proto=cfg["protocol"]
-        if proto=="vless":         cfg["link"]=vless_link(cfg)
-        elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
-        elif proto=="trojan":      cfg["link"]=trojan_link(cfg)
-        elif proto=="shadowsocks": cfg["link"]=ss_link(cfg)
-        elif proto=="tuic":        cfg["link"]=tuic_link(cfg)
-        elif proto=="hysteria2":   cfg["link"]=hysteria2_link(cfg)
-        else: cfg["link"]=""
-        if proto in ("vless","vmess","trojan","shadowsocks"):
-            ib=build_inbound(cfg)
-            if ib: inbounds.append(ib)
-
-    # Apply to Xray exactly like generate_all_configs
-    write_xray_config(inbounds)
-    users[uid]["configs"]=configs
-    save_users(users)
-    return jsonify({"ok":True,"count":len(configs),"configs":configs})
-
-@app.route("/api/export/<uid>/<fmt>")
-@login_required
-def api_export_user(uid, fmt):
-    users=load_users()
-    if uid not in users: return jsonify({"ok":False})
-    raw=[c.get("link","") for c in users[uid].get("configs",[]) if c.get("link")]
-    content=base64.b64encode("\n".join(raw).encode()).decode() if fmt=="b64" else "\n".join(raw)
-    fname=f"{users[uid]['name']}_{'sub_b64' if fmt=='b64' else 'links'}.txt"
-    return Response(content,mimetype="text/plain",headers={"Content-Disposition":f"attachment; filename={fname}"})
-
 # ── Update API ─────────────────────────────────────────────────
 @app.route("/api/update", methods=["POST"])
 @login_required
 def api_update():
-    results=[]
+    results = []
     try:
         import urllib.request as ur
-        for fname,dest in [("masterpanel.py",PANEL_DIR/"masterpanel.py"),("index.html",PANEL_DIR/"templates"/"index.html")]:
-            req=ur.Request(f"{GITHUB_RAW}/{fname}",headers={"User-Agent":"MasterPanel/3.5"})
-            with ur.urlopen(req,timeout=15) as r: dest.write_bytes(r.read())
+        for fname, dest in [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
+                             ("index.html", PANEL_DIR/"templates"/"index.html")]:
+            req = ur.Request(f"{GITHUB_RAW}/{fname}", headers={"User-Agent":"MasterPanel/4.0"})
+            with ur.urlopen(req, timeout=15) as r: dest.write_bytes(r.read())
             results.append(f"OK: {fname}")
         import subprocess as sp
         sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
@@ -1120,8 +827,8 @@ def api_update():
 def api_update_check():
     try:
         import urllib.request as ur
-        req=ur.Request(f"{GITHUB_RAW}/version.txt",headers={"User-Agent":"MasterPanel/3.5"})
-        with ur.urlopen(req,timeout=5) as r: latest=r.read().decode().strip()
+        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel/4.0"})
+        with ur.urlopen(req, timeout=5) as r: latest = r.read().decode().strip()
         return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
     except:
         return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
