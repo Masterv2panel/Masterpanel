@@ -138,7 +138,7 @@ cmd_logs(){
 cmd_update(){
   load_conf
   echo -e "${BLUE}[*]${NC} به‌روزرسانی از GitHub..."
-  REPO="https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main"
+  REPO="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
   TMPDIR=$(mktemp -d)
   FAILED=0
 

@@ -897,7 +897,7 @@ class TrafficMonitor(threading.Thread):
 
 def github_update():
     import urllib.request
-    repo     = "amirjafary4-jpg/Masterpanel"
+    repo     = "Masterv2panel/Masterpanel"
     base_url = f"https://raw.githubusercontent.com/{repo}/main"
     files    = ["masterpanel.py", "index.html", "mp.sh", "install.sh", "quickinstall.sh"]
     result   = {"updated": [], "failed": [], "errors": []}

@@ -29,7 +29,7 @@
 ### روش ۱ — یک دستور
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main/quickinstall.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/quickinstall.sh)
 ```
 
 ### روش ۲ — دستی
