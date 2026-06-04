@@ -1,61 +1,61 @@
 #!/bin/bash
 # ============================================================
-#   MasterPanel - Quick Installer
-#   Downloads all files and runs install.sh
+#   MasterPanel - Quick Installer v3.0
+#   یک دستور نصب کامل
 #   Usage: bash quickinstall.sh
 # ============================================================
-
 set -e
 
 RED='\033[0;31m'; GREEN='\033[0;32m'
 YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 echo -e "${CYAN}"
-echo "  ╔═══════════════════════════════════════════╗"
-echo "  ║      MasterPanel Quick Installer          ║"
-echo "  ╚═══════════════════════════════════════════╝"
+echo "  ╔═══════════════════════════════════════════════╗"
+echo "  ║      MasterPanel Quick Installer v3.0         ║"
+echo "  ╚═══════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Check root
-if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED}[ERROR] Run as root: sudo bash quickinstall.sh${NC}"
-  exit 1
-fi
+[[ $EUID -ne 0 ]] && echo -e "${RED}[ERROR] به عنوان root اجرا کنید: sudo bash quickinstall.sh${NC}" && exit 1
 
-# Temp working dir
 TMPDIR=$(mktemp -d)
 cd "$TMPDIR"
-echo -e "${GREEN}[INFO]${NC} Working directory: $TMPDIR"
+echo -e "${GREEN}[INFO]${NC} دایرکتوری موقت: $TMPDIR"
 
-# Install curl/wget if missing
 apt-get install -y -qq curl wget 2>/dev/null || true
 
-# ── If running from a local directory with all files present ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# اگر فایل‌ها در کنار این اسکریپت هستند
 if [[ -f "$SCRIPT_DIR/masterpanel.py" && -f "$SCRIPT_DIR/index.html" && -f "$SCRIPT_DIR/install.sh" ]]; then
-  echo -e "${GREEN}[INFO]${NC} Found local files in $SCRIPT_DIR"
-  cp "$SCRIPT_DIR/masterpanel.py" "$TMPDIR/"
-  cp "$SCRIPT_DIR/index.html" "$TMPDIR/"
-  cp "$SCRIPT_DIR/install.sh" "$TMPDIR/"
+  echo -e "${GREEN}[INFO]${NC} فایل‌های محلی یافت شدند در $SCRIPT_DIR"
+  for f in masterpanel.py index.html install.sh mp.sh; do
+    [[ -f "$SCRIPT_DIR/$f" ]] && cp "$SCRIPT_DIR/$f" "$TMPDIR/"
+  done
 else
-  # ── Download from GitHub (update URL after pushing to your repo) ──
-  REPO_URL="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
-  echo -e "${YELLOW}[WARN]${NC} Local files not found. Trying to download..."
-
-  for FILE in install.sh masterpanel.py index.html; do
-    echo -e "${GREEN}[INFO]${NC} Downloading $FILE..."
-    if ! wget -q "$REPO_URL/$FILE" -O "$FILE"; then
-      echo -e "${RED}[ERROR]${NC} Failed to download $FILE"
-      echo -e "${YELLOW}[HINT]${NC} Upload the 3 files manually and run:"
-      echo -e "  cd /tmp/mp && chmod +x install.sh && bash install.sh"
-      exit 1
+  # دانلود از GitHub
+  REPO_URL="https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main"
+  echo -e "${YELLOW}[INFO]${NC} در حال دانلود از GitHub..."
+  FAILED=0
+  for FILE in install.sh masterpanel.py index.html mp.sh; do
+    echo -ne "  دانلود $FILE ... "
+    if wget -q "$REPO_URL/$FILE" -O "$TMPDIR/$FILE" 2>/dev/null; then
+      echo -e "${GREEN}OK${NC}"
+    else
+      echo -e "${RED}ناموفق${NC}"; FAILED=$((FAILED+1))
     fi
   done
+
+  if [[ $FAILED -gt 0 ]]; then
+    echo -e "${RED}[ERROR]${NC} $FAILED فایل دانلود نشد"
+    echo -e "${YELLOW}[راهنما]${NC} فایل‌ها را دستی آپلود کنید و اجرا کنید:"
+    echo "  cd /tmp && mkdir mp && cd mp"
+    echo "  # فایل‌ها را آپلود کنید"
+    echo "  chmod +x install.sh && bash install.sh"
+    exit 1
+  fi
 fi
 
 chmod +x "$TMPDIR/install.sh"
 bash "$TMPDIR/install.sh"
 
-# Cleanup
 rm -rf "$TMPDIR"

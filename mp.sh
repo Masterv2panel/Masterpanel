@@ -1,287 +1,258 @@
 #!/bin/bash
 # ============================================================
-#   MasterPanel - Management CLI v2.0
+#   MasterPanel - Management CLI v3.0
 # ============================================================
-
-RED='\033[0;31m'; GREEN='\033[0;32m'
-YELLOW='\033[1;33m'; CYAN='\033[0;36m'
-BLUE='\033[0;34m'; WHITE='\033[1;37m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BLUE='\033[0;34m'; WHITE='\033[1;37m'; NC='\033[0m'
 
 PANEL_DIR="/opt/masterpanel"
 CONF_FILE="$PANEL_DIR/panel.conf"
+DB_PATH="$PANEL_DIR/masterpanel.db"
 XRAY_BIN="/usr/local/bin/xray"
-XRAY_CFG="/usr/local/etc/xray/config.json"
 TUIC_BIN="/usr/local/bin/tuic-server"
 HY2_BIN="/usr/local/bin/hysteria"
 
-load_conf() {
-    [[ -f "$CONF_FILE" ]] && source "$CONF_FILE" 2>/dev/null || true
+load_conf(){ [[ -f "$CONF_FILE" ]] && source "$CONF_FILE" 2>/dev/null || true; }
+
+print_banner(){
+  echo -e "${CYAN}"
+  echo "  ╔═══════════════════════════════════════════╗"
+  echo "  ║     MasterPanel Manager CLI v3.0          ║"
+  echo "  ╚═══════════════════════════════════════════╝"
+  echo -e "${NC}"
 }
 
-print_banner() {
-    echo -e "${CYAN}"
-    echo "  ╔═══════════════════════════════════════════╗"
-    echo "  ║     MasterPanel Manager CLI v2.0          ║"
-    echo "  ╚═══════════════════════════════════════════╝"
-    echo -e "${NC}"
+svc_status(){
+  systemctl is-active --quiet "$1" 2>/dev/null \
+    && echo -e "${GREEN}Running ✓${NC}" \
+    || echo -e "${RED}Stopped ✗${NC}"
 }
 
-svc_status() {
-    local name=$1
-    if systemctl is-active --quiet "$name" 2>/dev/null; then
-        echo -e "${GREEN}Running ✓${NC}"
+cmd_status(){
+  load_conf
+  echo -e "${WHITE}── سرویس‌ها ──────────────────────────────────${NC}"
+  echo -ne "  MasterPanel : "; svc_status masterpanel
+  echo -ne "  Xray        : "; svc_status xray
+  echo -ne "  TUIC v5     : "
+  [[ -f "$TUIC_BIN" ]] && svc_status tuic-server || echo -e "${YELLOW}نصب نشده${NC}"
+  echo -ne "  Hysteria2   : "
+  [[ -f "$HY2_BIN" ]] && svc_status hysteria2 || echo -e "${YELLOW}نصب نشده${NC}"
+
+  echo -e "${WHITE}── پایگاه داده کاربران ────────────────────────${NC}"
+  if [[ -f "$DB_PATH" ]]; then
+    TOTAL=$(sqlite3 "$DB_PATH"   "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "0")
+    ACTIVE=$(sqlite3 "$DB_PATH"  "SELECT COUNT(*) FROM users WHERE status='active';" 2>/dev/null || echo "0")
+    EXPIRED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE status IN ('expired','quota_exceeded');" 2>/dev/null || echo "0")
+    DISABLED=$(sqlite3 "$DB_PATH""SELECT COUNT(*) FROM users WHERE status='disabled';" 2>/dev/null || echo "0")
+    echo -e "  کل       : ${CYAN}$TOTAL${NC}"
+    echo -e "  فعال     : ${GREEN}$ACTIVE${NC}"
+    echo -e "  منقضی   : ${YELLOW}$EXPIRED${NC}"
+    echo -e "  غیرفعال : ${RED}$DISABLED${NC}"
+  else
+    echo -e "  ${YELLOW}پایگاه داده هنوز ساخته نشده${NC}"
+  fi
+
+  echo -e "${WHITE}── SSL ────────────────────────────────────────${NC}"
+  if [[ -n "$DOMAIN" ]]; then
+    CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    if [[ -f "$CERT" ]]; then
+      EXPIRY=$(openssl x509 -enddate -noout -in "$CERT" 2>/dev/null | cut -d= -f2)
+      echo -e "  دامنه  : $DOMAIN"
+      echo -e "  انقضا : ${GREEN}$EXPIRY${NC}"
     else
-        echo -e "${RED}Stopped ✗${NC}"
+      echo -e "  ${RED}گواهی SSL یافت نشد${NC}"
     fi
+  fi
+
+  echo -e "${WHITE}── شبکه ───────────────────────────────────────${NC}"
+  IP=$(curl -4 -s --max-time 5 https://api4.ipify.org 2>/dev/null \
+    || hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /:/) {print $i; exit}}')
+  echo -e "  IP سرور : $IP"
+  echo -e "  پنل     : ${CYAN}http://$IP:${PANEL_PORT:-9090}${NC}"
+  echo ""
 }
 
-cmd_status() {
-    load_conf
-    echo -e "${WHITE}── Services ────────────────────────────${NC}"
-    echo -ne "  MasterPanel : "; svc_status masterpanel
-    echo -ne "  Xray        : "; svc_status xray
-    echo -ne "  TUIC v5     : "
-    if [[ -f "$TUIC_BIN" ]]; then svc_status tuic-server; else echo -e "${YELLOW}Not installed${NC}"; fi
-    echo -ne "  Hysteria2   : "
-    if [[ -f "$HY2_BIN" ]]; then svc_status hysteria2; else echo -e "${YELLOW}Not installed${NC}"; fi
+cmd_users(){
+  [[ ! -f "$DB_PATH" ]] && echo -e "${YELLOW}پایگاه داده یافت نشد${NC}" && return
+  echo -e "${WHITE}── لیست کاربران ──────────────────────────────${NC}"
+  sqlite3 -column -header "$DB_PATH" \
+    "SELECT id,
+            username,
+            total_quota_gb || ' GB' AS quota,
+            ROUND(used_quota_bytes*1.0/1073741824, 3) || ' GB' AS used,
+            status,
+            COALESCE(substr(expire_date,1,10),'بدون انقضا') AS expires
+     FROM users ORDER BY created_at DESC;" 2>/dev/null \
+    || echo "خطا در خواندن پایگاه داده"
+}
 
-    echo -e "${WHITE}── Versions ────────────────────────────${NC}"
-    echo -e "  Xray      : $($XRAY_BIN version 2>/dev/null | head -1 || echo 'N/A')"
-    echo -e "  TUIC      : $($TUIC_BIN --version 2>/dev/null | head -1 || echo 'N/A')"
-    echo -e "  Hysteria2 : $($HY2_BIN version 2>/dev/null | head -1 || echo 'N/A')"
+cmd_restart(){
+  echo -e "${BLUE}[*]${NC} ری‌استارت MasterPanel..."
+  systemctl restart masterpanel \
+    && echo -e "${GREEN}[✓]${NC} پنل ری‌استارت شد" \
+    || echo -e "${RED}[✗]${NC} خطا — لاگ: journalctl -u masterpanel -n 20"
+}
 
-    echo -e "${WHITE}── SSL ─────────────────────────────────${NC}"
-    if [[ -n "$DOMAIN" ]]; then
-        CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-        if [[ -f "$CERT" ]]; then
-            EXPIRY=$(openssl x509 -enddate -noout -in "$CERT" 2>/dev/null | cut -d= -f2)
-            echo -e "  Domain  : $DOMAIN"
-            echo -e "  Expires : ${GREEN}$EXPIRY${NC}"
-        else
-            echo -e "  SSL Cert : ${RED}Not found${NC}"
-        fi
-    fi
+cmd_restart_xray(){
+  echo -e "${BLUE}[*]${NC} ری‌استارت Xray..."
+  systemctl restart xray \
+    && echo -e "${GREEN}[✓]${NC} Xray ری‌استارت شد" \
+    || { echo -e "${YELLOW}[~]${NC} سرویس نیست، اجرای مستقیم..."; pkill -f "xray run" 2>/dev/null; sleep 1
+         nohup $XRAY_BIN run -c /usr/local/etc/xray/config.json \
+           >> "$PANEL_DIR/logs/xray-access.log" 2>> "$PANEL_DIR/logs/xray-error.log" &
+         echo -e "${GREEN}[✓]${NC} Xray شروع شد"; }
+}
 
-    echo -e "${WHITE}── Configs ─────────────────────────────${NC}"
-    CFG_FILE="$PANEL_DIR/configs/all_configs.json"
-    if [[ -f "$CFG_FILE" ]]; then
-        TOTAL=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(len(d))" 2>/dev/null || echo "0")
-        VLESS=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='vless'))" 2>/dev/null || echo "0")
-        VMESS=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='vmess'))" 2>/dev/null || echo "0")
-        TROJAN=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='trojan'))" 2>/dev/null || echo "0")
-        SS=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='shadowsocks'))" 2>/dev/null || echo "0")
-        TUIC=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='tuic'))" 2>/dev/null || echo "0")
-        HY2=$(python3 -c "import json; d=json.load(open('$CFG_FILE')); print(sum(1 for c in d if c['protocol']=='hysteria2'))" 2>/dev/null || echo "0")
-        echo -e "  Total     : ${CYAN}$TOTAL${NC}"
-        echo -e "  VLESS     : $VLESS  |  VMess: $VMESS  |  Trojan: $TROJAN"
-        echo -e "  SS        : $SS  |  TUIC: $TUIC  |  Hysteria2: $HY2"
+cmd_restart_tuic(){
+  echo -e "${BLUE}[*]${NC} ری‌استارت TUIC..."
+  systemctl restart tuic-server 2>/dev/null \
+    && echo -e "${GREEN}[✓]${NC} TUIC ری‌استارت شد" \
+    || echo -e "${RED}[✗]${NC} TUIC نصب نیست یا خطا"
+}
+
+cmd_restart_hy2(){
+  echo -e "${BLUE}[*]${NC} ری‌استارت Hysteria2..."
+  systemctl restart hysteria2 2>/dev/null \
+    && echo -e "${GREEN}[✓]${NC} Hysteria2 ری‌استارت شد" \
+    || echo -e "${RED}[✗]${NC} Hysteria2 نصب نیست یا خطا"
+}
+
+cmd_restart_all(){
+  cmd_restart_xray
+  cmd_restart_tuic
+  cmd_restart_hy2
+  cmd_restart
+}
+
+cmd_logs(){
+  case "${1:-panel}" in
+    panel)    tail -f "$PANEL_DIR/logs/panel.log" ;;
+    xray)     tail -f "$PANEL_DIR/logs/xray-error.log" ;;
+    access)   tail -f "$PANEL_DIR/logs/xray-access.log" ;;
+    tuic)     tail -f "$PANEL_DIR/logs/tuic.log" ;;
+    hy2|hysteria2) tail -f "$PANEL_DIR/logs/hysteria2.log" ;;
+    *) echo "Usage: mp.sh logs [panel|xray|access|tuic|hy2]" ;;
+  esac
+}
+
+cmd_update(){
+  load_conf
+  echo -e "${BLUE}[*]${NC} به‌روزرسانی از GitHub..."
+  REPO="https://raw.githubusercontent.com/amirjafary4-jpg/Masterpanel/main"
+  TMPDIR=$(mktemp -d)
+  FAILED=0
+
+  for FILE in masterpanel.py index.html mp.sh install.sh quickinstall.sh; do
+    echo -ne "  دانلود $FILE ... "
+    if wget -q "$REPO/$FILE" -O "$TMPDIR/$FILE" 2>/dev/null; then
+      echo -e "${GREEN}OK${NC}"
     else
-        echo -e "  ${YELLOW}No configs generated yet${NC}"
+      echo -e "${RED}ناموفق${NC}"; FAILED=$((FAILED+1))
     fi
+  done
 
-    echo -e "${WHITE}── Network ─────────────────────────────${NC}"
-    IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-    echo -e "  Server IP : $IP"
-    echo -e "  Panel URL : ${CYAN}http://$IP:${PANEL_PORT:-9090}${NC}"
-    echo ""
-}
+  [[ -f "$TMPDIR/masterpanel.py" ]]   && cp "$TMPDIR/masterpanel.py" "$PANEL_DIR/masterpanel.py"
+  [[ -f "$TMPDIR/index.html" ]]       && cp "$TMPDIR/index.html" "$PANEL_DIR/templates/index.html"
+  [[ -f "$TMPDIR/mp.sh" ]]            && { cp "$TMPDIR/mp.sh" "$PANEL_DIR/mp.sh"; chmod +x "$PANEL_DIR/mp.sh"; }
+  [[ -f "$TMPDIR/install.sh" ]]       && { cp "$TMPDIR/install.sh" "$PANEL_DIR/install.sh"; chmod +x "$PANEL_DIR/install.sh"; }
+  [[ -f "$TMPDIR/quickinstall.sh" ]]  && { cp "$TMPDIR/quickinstall.sh" "$PANEL_DIR/quickinstall.sh"; chmod +x "$PANEL_DIR/quickinstall.sh"; }
 
-cmd_restart() {
-    echo -e "${BLUE}[*]${NC} Restarting MasterPanel..."
+  rm -rf "$TMPDIR"
+
+  if [[ $FAILED -eq 0 ]]; then
     systemctl restart masterpanel
-    sleep 1
-    systemctl is-active --quiet masterpanel \
-        && echo -e "${GREEN}[✓]${NC} MasterPanel restarted" \
-        || echo -e "${RED}[✗]${NC} Failed — check: journalctl -u masterpanel -n 20"
+    echo -e "${GREEN}[✓]${NC} به‌روزرسانی انجام شد و پنل ری‌استارت شد"
+  else
+    echo -e "${YELLOW}[!]${NC} $FAILED فایل دانلود نشد — پنل ری‌استارت نشد"
+  fi
 }
 
-cmd_restart_xray() {
-    echo -e "${BLUE}[*]${NC} Restarting Xray..."
-    if systemctl is-enabled --quiet xray 2>/dev/null; then
-        systemctl restart xray
-    else
-        pkill -f "xray run" 2>/dev/null || true
-        sleep 1
-        nohup $XRAY_BIN run -c $XRAY_CFG \
-            > $PANEL_DIR/logs/xray-access.log \
-            2> $PANEL_DIR/logs/xray-error.log &
-    fi
-    sleep 1
-    pgrep -f "xray run" > /dev/null \
-        && echo -e "${GREEN}[✓]${NC} Xray restarted" \
-        || echo -e "${RED}[✗]${NC} Xray failed"
+cmd_renew_ssl(){
+  load_conf
+  echo -e "${BLUE}[*]${NC} تجدید SSL برای $DOMAIN..."
+  systemctl stop masterpanel 2>/dev/null || true
+  certbot renew --force-renewal -d "$DOMAIN" 2>&1 | tail -5
+  systemctl start masterpanel
+  systemctl restart xray 2>/dev/null || true
+  systemctl restart tuic-server 2>/dev/null || true
+  systemctl restart hysteria2 2>/dev/null || true
+  echo -e "${GREEN}[✓]${NC} تجدید SSL انجام شد"
 }
 
-cmd_restart_tuic() {
-    echo -e "${BLUE}[*]${NC} Restarting TUIC..."
-    systemctl restart tuic-server 2>/dev/null \
-        && echo -e "${GREEN}[✓]${NC} TUIC restarted" \
-        || echo -e "${RED}[✗]${NC} TUIC failed or not installed"
+cmd_update_pass(){
+  load_conf
+  echo -e "${WHITE}کاربر فعلی: ${CYAN}$PANEL_USER${NC}"
+  echo -ne "رمز جدید (حداقل ۸ کاراکتر): "; read -s NEW_PASS; echo ""
+  [[ ${#NEW_PASS} -lt 8 ]] && echo -e "${RED}رمز خیلی کوتاه است${NC}" && return
+  sed -i "s/^PANEL_PASS=.*/PANEL_PASS=$NEW_PASS/" "$CONF_FILE"
+  systemctl restart masterpanel
+  echo -e "${GREEN}[✓]${NC} رمز تغییر کرد و پنل ری‌استارت شد"
 }
 
-cmd_restart_hy2() {
-    echo -e "${BLUE}[*]${NC} Restarting Hysteria2..."
-    systemctl restart hysteria2 2>/dev/null \
-        && echo -e "${GREEN}[✓]${NC} Hysteria2 restarted" \
-        || echo -e "${RED}[✗]${NC} Hysteria2 failed or not installed"
+cmd_db_backup(){
+  TS=$(date +%Y%m%d_%H%M%S)
+  BACKUP="$PANEL_DIR/backups/masterpanel_${TS}.db"
+  mkdir -p "$PANEL_DIR/backups"
+  sqlite3 "$DB_PATH" ".backup '$BACKUP'" 2>/dev/null || cp "$DB_PATH" "$BACKUP"
+  echo -e "${GREEN}[✓]${NC} پشتیبان: $BACKUP"
 }
 
-cmd_restart_all() {
-    cmd_restart_xray
-    cmd_restart_tuic
-    cmd_restart_hy2
-    cmd_restart
+cmd_db_shell(){
+  [[ ! -f "$DB_PATH" ]] && echo -e "${RED}پایگاه داده یافت نشد${NC}" && return
+  echo -e "${YELLOW}ورود به SQLite shell — برای خروج .quit تایپ کنید${NC}"
+  sqlite3 "$DB_PATH"
 }
 
-cmd_logs() {
-    case "${1:-panel}" in
-        panel)    tail -f "$PANEL_DIR/logs/panel.log" ;;
-        xray)     tail -f "$PANEL_DIR/logs/xray-error.log" ;;
-        access)   tail -f "$PANEL_DIR/logs/xray-access.log" ;;
-        tuic)     tail -f "$PANEL_DIR/logs/tuic.log" ;;
-        hy2|hysteria2) tail -f "$PANEL_DIR/logs/hysteria2.log" ;;
-        *) echo "Usage: mp.sh logs [panel|xray|access|tuic|hy2]" ;;
-    esac
+cmd_uninstall(){
+  echo -e "${RED}[هشدار]${NC} این عمل MasterPanel را کاملاً حذف می‌کند."
+  echo -ne "آیا مطمئنید؟ (yes/no): "; read CONFIRM
+  [[ "$CONFIRM" != "yes" ]] && echo "لغو شد." && return
+  systemctl stop masterpanel xray tuic-server hysteria2 2>/dev/null || true
+  systemctl disable masterpanel xray tuic-server hysteria2 2>/dev/null || true
+  rm -f /etc/systemd/system/{masterpanel,tuic-server,hysteria2,xray}.service
+  rm -rf /opt/masterpanel
+  systemctl daemon-reload
+  echo -e "${GREEN}[✓]${NC} MasterPanel کاملاً حذف شد"
+  echo -e "${YELLOW}[i]${NC} باینری‌های Xray/TUIC/HY2 و گواهی SSL نگه داشته شدند"
 }
 
-cmd_show_configs() {
-    CFG_FILE="$PANEL_DIR/configs/all_configs.json"
-    if [[ ! -f "$CFG_FILE" ]]; then
-        echo -e "${YELLOW}No configs generated yet.${NC}"
-        return
-    fi
-    python3 - << 'EOF'
-import json
-with open("/opt/masterpanel/configs/all_configs.json") as f:
-    configs = json.load(f)
-
-W='\033[1;37m'; C='\033[0;36m'; Y='\033[1;33m'
-G='\033[0;32m'; M='\033[0;35m'; R='\033[0;31m'; NC='\033[0m'
-
-COLORS = {'vless':C,'vmess':M,'trojan':Y,'shadowsocks':G,'tuic':'\033[0;34m','hysteria2':R,'wireguard':W}
-TLS_C  = {'tls':G,'reality':M,'none':'\033[0;90m','shadowtls':Y}
-
-print(f"\n{W}{'#':<3} {'Name':<38} {'Proto':<13} {'TLS':<10} {'Port':<7} {'Type'}{NC}")
-print("─" * 85)
-for i,c in enumerate(configs,1):
-    proto = c.get('protocol','')
-    tls   = c.get('tls','none')
-    ctype = '☁️ CDN' if c.get('connection_type')=='domain' else '🖥 IP'
-    pc = COLORS.get(proto, NC)
-    tc = TLS_C.get(tls, NC)
-    print(f"  {i:<3} {c['name']:<38} {pc}{proto.upper():<13}{NC} {tc}{tls:<10}{NC} {c.get('port',''):<7} {ctype}")
-
-print(f"\n  Total: {len(configs)} configs\n")
-EOF
+cmd_help(){
+  print_banner
+  echo -e "  ${WHITE}نحوه استفاده:${NC} bash mp.sh [دستور]"
+  echo ""
+  echo -e "  ${CYAN}status${NC}         وضعیت سرویس‌ها، کاربران و SSL"
+  echo -e "  ${CYAN}users${NC}          لیست کاربران از پایگاه داده"
+  echo -e "  ${CYAN}restart${NC}        ری‌استارت پنل"
+  echo -e "  ${CYAN}restart-xray${NC}   ری‌استارت Xray"
+  echo -e "  ${CYAN}restart-tuic${NC}   ری‌استارت TUIC v5"
+  echo -e "  ${CYAN}restart-hy2${NC}    ری‌استارت Hysteria2"
+  echo -e "  ${CYAN}restart-all${NC}    ری‌استارت همه سرویس‌ها"
+  echo -e "  ${CYAN}update${NC}         دریافت آخرین نسخه از GitHub"
+  echo -e "  ${CYAN}logs [service]${NC} لاگ‌ها: panel|xray|access|tuic|hy2"
+  echo -e "  ${CYAN}renew-ssl${NC}      تجدید گواهی SSL"
+  echo -e "  ${CYAN}update-pass${NC}    تغییر رمز پنل"
+  echo -e "  ${CYAN}db-backup${NC}      پشتیبان‌گیری از پایگاه داده"
+  echo -e "  ${CYAN}db-shell${NC}       ورود به SQLite shell"
+  echo -e "  ${CYAN}uninstall${NC}      حذف کامل MasterPanel"
+  echo ""
 }
 
-cmd_show_links() {
-    f="$PANEL_DIR/configs/all_links.txt"
-    if [[ -f "$f" ]]; then cat "$f"; else echo -e "${YELLOW}No links yet.${NC}"; fi
-}
-
-cmd_renew_ssl() {
-    load_conf
-    echo -e "${BLUE}[*]${NC} Renewing SSL for $DOMAIN..."
-    systemctl stop masterpanel 2>/dev/null || true
-    certbot renew --force-renewal -d "$DOMAIN" 2>&1 | tail -5
-    systemctl start masterpanel
-    systemctl restart tuic-server 2>/dev/null || true
-    systemctl restart hysteria2 2>/dev/null || true
-    echo -e "${GREEN}[✓]${NC} Done"
-}
-
-cmd_update_pass() {
-    load_conf
-    echo -e "${WHITE}Current user: ${CYAN}$PANEL_USER${NC}"
-    echo -ne "New password (min 8 chars): "
-    read -s NEW_PASS; echo ""
-    if [[ ${#NEW_PASS} -lt 8 ]]; then echo -e "${RED}Too short${NC}"; return; fi
-    sed -i "s/^PANEL_PASS=.*/PANEL_PASS=$NEW_PASS/" "$CONF_FILE"
-    systemctl restart masterpanel
-    echo -e "${GREEN}[✓]${NC} Password updated"
-}
-
-cmd_install_tuic() {
-    echo -e "${BLUE}[*]${NC} Installing/updating TUIC v5..."
-    ARCH=$(uname -m)
-    [[ "$ARCH" == "aarch64" ]] && TA="aarch64-unknown-linux-gnu" || TA="x86_64-unknown-linux-gnu"
-    VER=$(curl -s https://api.github.com/repos/EAimTY/tuic/releases/latest | jq -r '.tag_name' 2>/dev/null || echo "tuic-server-1.0.0")
-    wget -q "https://github.com/EAimTY/tuic/releases/download/${VER}/tuic-server-${TA}" -O /usr/local/bin/tuic-server
-    chmod +x /usr/local/bin/tuic-server
-    echo -e "${GREEN}[✓]${NC} TUIC installed"
-}
-
-cmd_install_hy2() {
-    echo -e "${BLUE}[*]${NC} Installing/updating Hysteria2..."
-    bash <(curl -fsSL https://get.hy2.sh/) 2>&1 | tail -3
-    echo -e "${GREEN}[✓]${NC} Hysteria2 installed"
-}
-
-cmd_update() {
-    echo -e "${BLUE}[*]${NC} Updating MasterPanel from GitHub..."
-    GRAW="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
-    wget -q "$GRAW/masterpanel.py" -O /opt/masterpanel/masterpanel.py         && echo -e "${GREEN}[✓]${NC} masterpanel.py" || echo -e "${RED}[✗]${NC} masterpanel.py"
-    wget -q "$GRAW/index.html" -O /opt/masterpanel/templates/index.html         && echo -e "${GREEN}[✓]${NC} index.html" || echo -e "${RED}[✗]${NC} index.html"
-    wget -q "$GRAW/mp.sh" -O /opt/masterpanel/mp.sh && chmod +x /opt/masterpanel/mp.sh         && echo -e "${GREEN}[✓]${NC} mp.sh" || echo -e "${RED}[✗]${NC} mp.sh"
-    systemctl restart masterpanel && sleep 1
-    systemctl is-active --quiet masterpanel         && echo -e "${GREEN}[✓]${NC} Panel restarted"         || echo -e "${RED}[✗]${NC} Restart failed — check: journalctl -u masterpanel -n 20"
-}
-
-cmd_uninstall() {
-    echo -e "${RED}[WARNING]${NC} This will remove MasterPanel completely."
-    echo -ne "Are you sure? (yes/no): "
-    read CONFIRM
-    [[ "$CONFIRM" != "yes" ]] && echo "Cancelled." && return
-    systemctl stop masterpanel tuic-server hysteria2 2>/dev/null || true
-    systemctl disable masterpanel tuic-server hysteria2 2>/dev/null || true
-    rm -f /etc/systemd/system/masterpanel.service
-    rm -f /etc/systemd/system/tuic-server.service
-    rm -f /etc/systemd/system/hysteria2.service
-    rm -rf /opt/masterpanel
-    systemctl daemon-reload
-    echo -e "${GREEN}[✓]${NC} MasterPanel removed."
-    echo -e "${YELLOW}[NOTE]${NC} Xray, TUIC, Hysteria2 binaries and SSL certs kept."
-}
-
-cmd_help() {
-    print_banner
-    echo -e "  ${WHITE}Usage:${NC} bash mp.sh [command]"
-    echo ""
-    echo -e "  ${CYAN}status${NC}            Show all services, configs, SSL"
-    echo -e "  ${CYAN}restart${NC}           Restart MasterPanel panel"
-    echo -e "  ${CYAN}restart-xray${NC}      Restart Xray"
-    echo -e "  ${CYAN}restart-tuic${NC}      Restart TUIC v5"
-    echo -e "  ${CYAN}restart-hy2${NC}       Restart Hysteria2"
-    echo -e "  ${CYAN}restart-all${NC}       Restart all services"
-    echo -e "  ${CYAN}logs [service]${NC}    Tail logs: panel|xray|access|tuic|hy2"
-    echo -e "  ${CYAN}configs${NC}           List all generated configs"
-    echo -e "  ${CYAN}links${NC}             Show all share links"
-    echo -e "  ${CYAN}renew-ssl${NC}         Force renew SSL certificate"
-    echo -e "  ${CYAN}update-pass${NC}       Change panel password"
-    echo -e "  ${CYAN}install-tuic${NC}      Install/update TUIC v5"
-    echo -e "  ${CYAN}install-hy2${NC}       Install/update Hysteria2"
-    echo -e "  ${CYAN}uninstall${NC}         Remove MasterPanel"
-    echo ""
-}
-
-# ── Main ──────────────────────────────────────────────────────
+# ══ اجرا ══════════════════════════════════════════════════════
 print_banner
 case "${1:-help}" in
-    status)       cmd_status ;;
-    restart)      cmd_restart ;;
-    restart-xray) cmd_restart_xray ;;
-    restart-tuic) cmd_restart_tuic ;;
-    restart-hy2)  cmd_restart_hy2 ;;
-    restart-all)  cmd_restart_all ;;
-    logs)         cmd_logs "$2" ;;
-    configs)      cmd_show_configs ;;
-    links)        cmd_show_links ;;
-    renew-ssl)    cmd_renew_ssl ;;
-    update-pass)  cmd_update_pass ;;
-    install-tuic) cmd_install_tuic ;;
-    install-hy2)  cmd_install_hy2 ;;
-    update)       cmd_update ;;
-    uninstall)    cmd_uninstall ;;
-    help|*)       cmd_help ;;
+  status)        cmd_status ;;
+  users)         cmd_users ;;
+  restart)       cmd_restart ;;
+  restart-xray)  cmd_restart_xray ;;
+  restart-tuic)  cmd_restart_tuic ;;
+  restart-hy2)   cmd_restart_hy2 ;;
+  restart-all)   cmd_restart_all ;;
+  update)        cmd_update ;;
+  logs)          cmd_logs "$2" ;;
+  renew-ssl)     cmd_renew_ssl ;;
+  update-pass)   cmd_update_pass ;;
+  db-backup)     cmd_db_backup ;;
+  db-shell)      cmd_db_shell ;;
+  uninstall)     cmd_uninstall ;;
+  help|*)        cmd_help ;;
 esac
