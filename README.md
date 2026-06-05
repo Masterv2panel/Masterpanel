@@ -1,166 +1,210 @@
-# MasterPanel v3.0 - Enterprise Edition
+# 🛡️ Master Panel — پنل مدیریت X-UI سنایی
 
-پنل مدیریت حرفه‌ای Xray با مدیریت کاربران، رصد ترافیک و رابط فارسی
+<div align="center">
 
----
+![Version](https://img.shields.io/badge/version-3.0.0-cyan?style=for-the-badge)
+![Shell](https://img.shields.io/badge/shell-bash-green?style=for-the-badge&logo=gnubash)
+![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-20.04%20%7C%2022.04%20%7C%2024.04-orange?style=for-the-badge&logo=ubuntu)
+![X-UI](https://img.shields.io/badge/X--UI-Sanaei%20Fork-purple?style=for-the-badge)
 
-## ویژگی‌های نسخه ۳
+**پنل مدیریت حرفه‌ای و تعاملی برای X-UI (نسخه سنایی) — کاملاً به فارسی**
 
-- **مدیریت کاربران با SQLite** — ایجاد، ویرایش، حذف کاربران
-- **معماری Multi-Client** — همه کاربران در یک اینباند مشترک (نه پورت جداگانه)
-- **رصد ترافیک خودکار** — هر ۵ دقیقه از API داخلی Xray
-- **اعمال محدودیت** — غیرفعال شدن خودکار پس از اتمام سهمیه یا انقضا
-- **سابسکریپشن عمومی** — `/sub/<username>` با هدرهای استاندارد
-- **به‌روزرسانی از GitHub** — مستقیم از پنل یا ترمینال
-- **پشتیبانی از TUIC v5 و Hysteria2** — با multi-user
+[نصب سریع](#-نصب-سریع) · [ویژگی‌ها](#-ویژگیها) · [راهنما](#-راهنمای-استفاده) · [داشبورد وب](#-داشبورد-وب)
 
----
-
-## پیش‌نیازها
-
-- Ubuntu 20.04 / 22.04 / Debian 11+
-- دامنه با DNS به IP سرور
-- پورت 80 و 443 باز
+</div>
 
 ---
 
-## نصب
+## 📋 معرفی
 
-### روش ۱ — یک دستور
+**Master Panel** یک اسکریپت Bash پیشرفته و یک داشبورد وب فارسی است که مدیریت کامل سرور X-UI (نسخه سنایی/3x-ui) را از طریق یک رابط تعاملی زیبا فراهم می‌کند.
+
+- 🖥️ **TUI فارسی** — منوی رنگی تعاملی در ترمینال (ANSI)
+- 🌐 **Web Dashboard** — داشبورد HTML فارسی، RTL، تم تاریک صنعتی
+- 🔒 **SSL بدون دامنه** — گواهی Let's Encrypt از طریق sslip.io روی IP خالی
+- ☁️ **Cloudflare هوشمند** — پشتیبانی از CDN، IP تمیز، DNS API
+- 🤖 **ربات تلگرام** — بکاپ خودکار، هشدار ترافیک، گزارش روزانه
+
+---
+
+## ✨ ویژگی‌ها
+
+### 🔧 پروتکل‌ها و Transport
+| پروتکل | Transport | Security |
+|--------|-----------|----------|
+| VLESS | TCP, WS, gRPC, XHTTP, H2, QUIC | None, TLS, Reality, XTLS |
+| VMess | TCP, WS, gRPC, XHTTP | None, TLS |
+| Trojan | TCP, WS, gRPC | TLS, Reality |
+| ShadowSocks | TCP, WS | — |
+| Hysteria2 | UDP | TLS |
+
+### 👥 مدیریت کاربران
+- ایجاد، ویرایش، حذف کاربر (CRUD کامل)
+- تنظیم حجم ترافیک (GB) و تاریخ انقضا
+- ریست ترافیک، فعال/غیرفعال
+- آمار مصرف و هشدار ۹۰٪ ترافیک
+
+### ☁️ Cloudflare
+- کانفیگ مستقیم (Direct IP) برای Reality / Hysteria2
+- کانفیگ CDN با دامنه Cloudflare-proxied
+- کانفیگ IP تمیز با تزریق Clean IP در آدرس target
+- تست خودکار دسترسی‌پذیری IP های تمیز
+- DNS API برای مدیریت رکوردها
+
+### 🔒 SSL
+- نصب Let's Encrypt **بدون دامنه** از طریق `sslip.io`
+- تبدیل `1.2.3.4` → `1.2.3.4.sslip.io` → گواهی معتبر
+- پشتیبانی از احراز Standalone، Webroot، DNS-CF
+- تمدید خودکار با acme.sh
+
+### 🤖 تلگرام
+- ارسال بکاپ روزانه/هفتگی دیتابیس
+- هشدار کاربران نزدیک به اتمام ترافیک
+- هشدار کاربران منقضی‌شده
+- گزارش ترافیک کامل
+
+### 💾 بکاپ
+- بکاپ دستی و خودکار (Cron)
+- نگهداری آخرین ۷ بکاپ
+- بازیابی از فایل
+
+---
+
+## 🚀 نصب سریع
+
+### روش یک‌خطی (توصیه‌شده)
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/install-xui-panel.sh)
+```
+
+### روش دستی
+```bash
+# ۱. دانلود فایل‌ها
+git clone https://github.com/Masterv2panel/Masterpanel.git
+cd Masterpanel
+
+# ۲. مجوز اجرا
+chmod +x xui-panel.sh xui-panel-part2.sh install-xui-panel.sh
+
+# ۳. نصب
+sudo bash install-xui-panel.sh
+
+# ۴. اجرا
+sudo xui-panel
+```
+
+### پیش‌نیازها
+```bash
+# نصب خودکار هنگام اولین اجرا — یا دستی:
+sudo apt-get install -y curl jq sqlite3 openssl uuid-runtime qrencode cron bc socat unzip wget
+```
+
+---
+
+## 📁 ساختار فایل‌ها
+
+```
+Masterpanel/
+├── xui-panel.sh            # هسته اصلی — TUI، DB، منو، مدیریت کاربران
+├── xui-panel-part2.sh      # ماژول‌ها — کانفیگ، CF، ساب، تلگرام، SSL
+├── install-xui-panel.sh    # نصب‌کننده سریع
+├── xui-dashboard.html      # داشبورد وب فارسی (تک‌فایل HTML)
+└── README.md
+```
+
+---
+
+## 🖥️ داشبورد وب
+
+فایل `xui-dashboard.html` یک داشبورد کامل است که:
+- مستقیم در مرورگر باز می‌شود (بدون نیاز به سرور)
+- با **X-UI API** ارتباط برقرار می‌کند
+- داده‌های نمونه برای نمایش در حالت Demo دارد
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/quickinstall.sh)
+# قرار دادن روی سرور
+cp xui-dashboard.html /var/www/html/
+
+# یا دسترسی مستقیم
+firefox xui-dashboard.html
 ```
 
-### روش ۲ — دستی
+**اتصال به X-UI:** تنظیمات → آدرس سرور → `http://YOUR-IP:54321`
 
-```bash
-# آپلود همه فایل‌ها در یک پوشه، سپس:
-chmod +x install.sh
-sudo bash install.sh
+---
+
+## 📖 راهنمای استفاده
+
+```
+sudo xui-panel
+
+ ┌─────────────────────────────┐
+ │  1) مدیریت کاربران          │
+ │  2) مدیریت اینباندها         │
+ │  3) تولید کانفیگ             │
+ │  4) Cloudflare               │
+ │  5) ساب‌اسکریپشن            │
+ │  6) ربات تلگرام              │
+ │  7) بکاپ                     │
+ │  8) SSL                      │
+ │  9) مدیریت سرویس            │
+ │ 10) تنظیمات                  │
+ └─────────────────────────────┘
 ```
 
 ---
 
-## دسترسی به پنل
+## ⚙️ پیکربندی
 
-```
-http://YOUR_SERVER_IP:9090
-```
+تنظیمات در `/etc/xui-panel/config.env` ذخیره می‌شوند:
 
-⚠️ از **IP سرور** باز کنید، نه دامنه!
-
----
-
-## ساختار پورت‌ها
-
-| پروتکل | Transport | TLS | پورت |
-|--------|-----------|-----|------|
-| VLESS  | REALITY   | Reality | 443 |
-| VLESS  | WebSocket | TLS | 8443 |
-| VLESS  | gRPC      | TLS | 2053 |
-| VLESS  | HTTPUpgrade | TLS | 2087 |
-| VMess  | WebSocket | TLS | 2083 |
-| VMess  | gRPC      | TLS | 2096 |
-| Trojan | WebSocket | TLS | 2052 |
-| Trojan | TCP       | TLS | 2082 |
-| Shadowsocks | TCP  | —   | 8388 |
-| Shadowsocks | TCP  | —   | 8389 |
-| TUIC v5 | UDP     | TLS | 19443 |
-| Hysteria2 | UDP   | TLS | 19444 |
-
----
-
-## مدیریت از ترمینال
-
-```bash
-# وضعیت کامل
-bash /opt/masterpanel/mp.sh status
-
-# لیست کاربران
-bash /opt/masterpanel/mp.sh users
-
-# ری‌استارت همه سرویس‌ها
-bash /opt/masterpanel/mp.sh restart-all
-
-# آپدیت از GitHub
-bash /opt/masterpanel/mp.sh update
-
-# لاگ پنل
-bash /opt/masterpanel/mp.sh logs panel
-
-# پشتیبان از پایگاه داده
-bash /opt/masterpanel/mp.sh db-backup
+```env
+PANEL_CF_DOMAIN="vpn.example.com"
+PANEL_TG_TOKEN="your_bot_token"
+PANEL_TG_CHAT_ID="your_chat_id"
+PANEL_PUBLIC_IP="1.2.3.4"
+PANEL_SUB_PORT="8080"
+PANEL_SSL_DOMAIN="1.2.3.4.sslip.io"
 ```
 
 ---
 
-## API سابسکریپشن
+## 🔐 امنیت
 
-برای هر کاربر یک URL اختصاصی:
-
-```
-http://YOUR_IP:9090/sub/USERNAME
-```
-
-هدرهای استاندارد:
-- `Subscription-Userinfo` — مصرف و سهمیه
-- `Profile-Title` — نام کاربر
+- فایل تنظیمات با `chmod 600` محافظت می‌شود
+- توکن تلگرام هرگز در لاگ ذخیره نمی‌شود
+- بکاپ‌ها در `/var/backups/xui-panel/` با دسترسی root ذخیره می‌شوند
 
 ---
 
-## ساختار فایل‌ها
+## 📊 سازگاری
 
-```
-/opt/masterpanel/
-├── masterpanel.py       # سرور اصلی
-├── masterpanel.db       # پایگاه داده SQLite
-├── panel.conf           # تنظیمات
-├── venv/                # محیط Python
-├── templates/
-│   └── index.html       # رابط کاربری
-├── configs/
-│   ├── tuic_config.json
-│   └── hysteria2_config.yaml
-└── logs/
-    ├── panel.log
-    ├── xray-access.log
-    └── xray-error.log
-```
+| سیستم‌عامل | وضعیت |
+|------------|--------|
+| Ubuntu 20.04 LTS | ✅ کامل |
+| Ubuntu 22.04 LTS | ✅ کامل |
+| Ubuntu 24.04 LTS | ✅ کامل |
+| Debian 11/12 | ⚠️ آزمایشی |
 
 ---
 
-## عیب‌یابی
+## 🤝 مشارکت
 
-```bash
-# لاگ پنل
-journalctl -u masterpanel -n 50
-
-# لاگ Xray
-tail -f /opt/masterpanel/logs/xray-error.log
-
-# تست کانفیگ Xray
-/usr/local/bin/xray run -test -c /usr/local/etc/xray/config.json
-
-# وضعیت سرویس‌ها
-systemctl status masterpanel xray
-```
+Pull Request ها歡迎 هستند. برای تغییرات بزرگ ابتدا یک Issue باز کنید.
 
 ---
 
-## به‌روزرسانی
+## 📄 لایسنس
 
-از پنل: **تنظیمات → بررسی و نصب آپدیت از GitHub**
-
-یا از ترمینال:
-```bash
-bash /opt/masterpanel/mp.sh update
-```
+MIT License — آزاد برای استفاده شخصی و تجاری
 
 ---
 
-## حذف کامل
+<div align="center">
 
-```bash
-bash /opt/masterpanel/mp.sh uninstall
-```
+ساخته‌شده با ❤️ برای جامعه فارسی‌زبان
+
+**[⭐ Star بده](https://github.com/Masterv2panel/Masterpanel)** اگر مفید بود!
+
+</div>
