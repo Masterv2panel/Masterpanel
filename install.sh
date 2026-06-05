@@ -1,1807 +1,572 @@
-#!/usr/bin/env bash
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║         MASTER PANEL — X-UI SANAEI AUTO-INSTALLER               ║
-# ║         نصب‌کننده خودکار پنل مدیریت X-UI سنایی                 ║
-# ║         Version: 4.0.0  |  github.com/Masterv2panel/Masterpanel  ║
-# ╚══════════════════════════════════════════════════════════════════╝
-set -euo pipefail
-IFS=$'\n\t'
+#!/bin/bash
+# ============================================================
+#   MasterPanel Installer v3.0  —  Advanced Edition
+#   Protocols: Xray (VLESS/VMess/Trojan/SS/REALITY/XHTTP)
+#              TUIC v5 + Hysteria2
+#   Features:  Multi-user SQLite | Ad-Block | Iran Bypass
+#              Telegram Bot | GitHub Auto-Update
+# ============================================================
 
-# ── Colors ──────────────────────────────────────────────────────────
-R="\033[0m"; B="\033[1m"
-RED="\033[1;31m"; GREEN="\033[1;32m"; YELLOW="\033[1;33m"
-CYAN="\033[1;36m"; WHITE="\033[1;37m"; DIM="\033[2m"; MAGENTA="\033[1;35m"
+set -e
 
-# ── Root check ──────────────────────────────────────────────────────
-[[ $EUID -ne 0 ]] && { echo -e "${RED}[خطا] با دسترسی root اجرا کنید: sudo bash install.sh${R}"; exit 1; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; CYAN='\033[0;36m'; WHITE='\033[1;37m'; NC='\033[0m'
 
-# ══════════════════════════════════════════════════════════════════
-# SECTION 1 — WELCOME BANNER
-# ══════════════════════════════════════════════════════════════════
-clear
-echo -e "${CYAN}${B}"
-cat << 'BANNER'
-  ███╗   ███╗ █████╗ ███████╗████████╗███████╗██████╗
-  ████╗ ████║██╔══██╗██╔════╝╚══██╔══╝██╔════╝██╔══██╗
-  ██╔████╔██║███████║███████╗   ██║   █████╗  ██████╔╝
-  ██║╚██╔╝██║██╔══██║╚════██║   ██║   ██╔══╝  ██╔══██╗
-  ██║ ╚═╝ ██║██║  ██║███████║   ██║   ███████╗██║  ██║
-  ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
-         P A N E L  —  X-UI Sanaei v4.0.0
-BANNER
-echo -e "${R}"
-echo -e "  ${DIM}نصب‌کننده خودکار پنل مدیریت گرافیکی X-UI${R}"
-echo -e "  ${DIM}github.com/Masterv2panel/Masterpanel${R}"
-echo ""
-echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
-echo ""
+PANEL_DIR="/opt/masterpanel"
+PANEL_PORT=9090
+XRAY_DIR="/usr/local/bin"
+XRAY_CONFIG_DIR="/usr/local/etc/xray"
 
-# ══════════════════════════════════════════════════════════════════
-# SECTION 2 — ONE-TIME SETUP PROMPTS
-# ══════════════════════════════════════════════════════════════════
-echo -e "  ${CYAN}${B}⚙  پیکربندی اولیه — اطلاعات زیر را وارد کنید:${R}"
-echo ""
+print_banner() {
+    echo -e "${CYAN}"
+    echo "  ╔═══════════════════════════════════════════════════╗"
+    echo "  ║      MasterPanel Installer  v3.0 Advanced         ║"
+    echo "  ║  Xray + TUIC v5 + Hysteria2 · Ad-Block · Bypass  ║"
+    echo "  ╚═══════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
 
-prompt_var() {
-    local label="$1" default="$2" var_ref="$3" secret="${4:-no}"
-    if [[ "$secret" == "yes" ]]; then
-        echo -ne "  ${CYAN}➤${R} ${B}${label}${R} ${DIM}[پیش‌فرض: ${default}]${R}: "
-        read -rs val; echo ""
-    else
-        echo -ne "  ${CYAN}➤${R} ${B}${label}${R} ${DIM}[پیش‌فرض: ${default}]${R}: "
-        read -r val
+log_info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step()  { echo -e "${BLUE}[STEP]${NC}  $1"; }
+
+check_root() {
+    [[ $EUID -ne 0 ]] && log_error "Run as root: sudo bash install.sh" && exit 1
+}
+
+check_os() {
+    [[ ! -f /etc/os-release ]] && log_error "Cannot detect OS." && exit 1
+    . /etc/os-release
+    log_info "OS: $NAME $VERSION_ID"
+    [[ "$ID" != "ubuntu" && "$ID" != "debian" ]] && \
+        log_warn "Tested on Ubuntu/Debian — proceeding anyway."
+}
+
+get_user_input() {
+    echo ""; echo -e "${WHITE}═══ Configuration ════════════════════════════════${NC}"; echo ""
+    while true; do
+        echo -ne "${CYAN}Domain (e.g. vpn.example.com): ${NC}"; read DOMAIN
+        [[ -n "$DOMAIN" ]] && break; log_warn "Domain cannot be empty."
+    done
+    while true; do
+        echo -ne "${CYAN}Admin username (min 4 chars): ${NC}"; read PANEL_USER
+        [[ ${#PANEL_USER} -ge 4 ]] && break; log_warn "At least 4 characters."
+    done
+    while true; do
+        echo -ne "${CYAN}Admin password (min 8 chars): ${NC}"; read -s PANEL_PASS; echo ""
+        [[ ${#PANEL_PASS} -ge 8 ]] && break; log_warn "At least 8 characters."
+    done
+    echo ""
+    log_info "Domain: $DOMAIN  |  User: $PANEL_USER  |  Port: $PANEL_PORT"
+    echo ""
+    echo -ne "${YELLOW}Continue? [y/N]: ${NC}"; read CONFIRM
+    [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && log_warn "Cancelled." && exit 0
+}
+
+install_dependencies() {
+    log_step "Installing system dependencies..."
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        curl wget unzip python3 python3-pip python3-venv \
+        certbot ufw openssl uuid-runtime jq net-tools \
+        qrencode ca-certificates sqlite3 2>/dev/null || true
+    log_info "Dependencies installed."
+}
+
+install_xray() {
+    log_step "Installing Xray-core (latest)..."
+    XRAY_VERSION=$(curl -s \
+        https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+        | jq -r '.tag_name' 2>/dev/null || echo "v25.6.8")
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)  XRAY_ARCH="64" ;;
+        aarch64) XRAY_ARCH="arm64-v8a" ;;
+        armv7l)  XRAY_ARCH="arm32-v7a" ;;
+        *)       XRAY_ARCH="64" ;;
+    esac
+    XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${XRAY_ARCH}.zip"
+    log_info "Downloading Xray ${XRAY_VERSION} (${XRAY_ARCH})..."
+    wget -q "$XRAY_URL" -O /tmp/xray.zip
+    unzip -o /tmp/xray.zip -d /tmp/xray_tmp/ > /dev/null
+
+    mv /tmp/xray_tmp/xray "$XRAY_DIR/xray"
+    chmod +x "$XRAY_DIR/xray"
+
+    # Copy geo databases bundled with Xray (needed for routing rules)
+    mkdir -p "$XRAY_CONFIG_DIR"
+    for GEOFILE in geoip.dat geosite.dat; do
+        if [[ -f "/tmp/xray_tmp/$GEOFILE" ]]; then
+            cp "/tmp/xray_tmp/$GEOFILE" "$XRAY_CONFIG_DIR/$GEOFILE"
+            log_info "Geo database bundled: $GEOFILE ✓"
+        fi
+    done
+
+    rm -rf /tmp/xray.zip /tmp/xray_tmp/
+
+    # Ensure geo databases exist (fallback: download from Loyalsoldier repo)
+    _ensure_geo_databases
+
+    log_info "Xray installed: $($XRAY_DIR/xray version 2>/dev/null | head -1)"
+}
+
+_ensure_geo_databases() {
+    local MISSING=0
+    [[ ! -f "$XRAY_CONFIG_DIR/geoip.dat"   ]] && MISSING=1
+    [[ ! -f "$XRAY_CONFIG_DIR/geosite.dat" ]] && MISSING=1
+    if [[ $MISSING -eq 1 ]]; then
+        log_info "Downloading enhanced geo databases (Loyalsoldier/v2ray-rules-dat)..."
+        local BASE="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download"
+        wget -q "$BASE/geoip.dat"   -O "$XRAY_CONFIG_DIR/geoip.dat"   2>/dev/null \
+            || log_warn "geoip.dat download failed — Iran bypass may not work"
+        wget -q "$BASE/geosite.dat" -O "$XRAY_CONFIG_DIR/geosite.dat" 2>/dev/null \
+            || log_warn "geosite.dat download failed — Ad-Block may not work"
     fi
-    [[ -z "$val" ]] && val="$default"
-    printf -v "$var_ref" '%s' "$val"
 }
 
-# Detect public IP
-DETECTED_IP=$(curl -s --max-time 6 https://api.ipify.org 2>/dev/null \
-    || curl -s --max-time 6 https://ifconfig.me 2>/dev/null \
-    || echo "YOUR-SERVER-IP")
-
-prompt_var "نام کاربری پنل"            "admin"         PANEL_USER
-prompt_var "رمز عبور پنل"              "$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)" PANEL_PASS "yes"
-prompt_var "پورت وب‌پنل داشبورد"       "8080"          PANEL_PORT
-prompt_var "IP یا دامنه سرور"          "$DETECTED_IP"  SERVER_HOST
-prompt_var "پورت X-UI (پیش‌فرض سنایی)" "2053"          XUI_PORT
-
-echo ""
-echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
-echo ""
-
-# ══════════════════════════════════════════════════════════════════
-# SECTION 3 — SILENT DEPENDENCY INSTALLATION
-# ══════════════════════════════════════════════════════════════════
-step() { echo -e "  ${CYAN}[${1}/${TOTAL_STEPS}]${R}  ${B}${2}${R}"; }
-ok()   { echo -e "  ${GREEN}✓${R}  ${DIM}${1}${R}"; }
-TOTAL_STEPS=7
-
-step 1 "بروزرسانی سیستم‌عامل..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq >/dev/null 2>&1
-apt-get upgrade -y -qq >/dev/null 2>&1
-ok "OS بروزرسانی شد"
-
-step 2 "نصب پکیج‌های مورد نیاز..."
-apt-get install -y -qq \
-    curl wget unzip tar nginx sqlite3 jq \
-    openssl uuid-runtime cron socat bc \
-    python3 qrencode net-tools >/dev/null 2>&1
-ok "پکیج‌ها نصب شدند"
-
-step 3 "نصب X-UI Sanaei..."
-if ! command -v x-ui &>/dev/null && [[ ! -f /usr/local/x-ui/x-ui ]]; then
-    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/master/install.sh) \
-        >/dev/null 2>&1 || true
-    ok "X-UI نصب شد"
-else
-    ok "X-UI قبلاً نصب شده بود"
-fi
-
-step 4 "پیکربندی X-UI..."
-XUI_DB="/etc/x-ui/x-ui.db"
-sleep 3
-if [[ -f "$XUI_DB" ]]; then
-    # Set admin credentials
-    sqlite3 "$XUI_DB" "UPDATE users SET username='${PANEL_USER}', password='${PANEL_PASS}' WHERE id=1;" 2>/dev/null || true
-    sqlite3 "$XUI_DB" "UPDATE settings SET value='${XUI_PORT}' WHERE key='webPort';" 2>/dev/null || true
-    systemctl restart x-ui >/dev/null 2>&1 || true
-    sleep 2
-fi
-ok "X-UI پیکربندی شد"
-
-step 5 "ساخت پوشه داشبورد..."
-WEB_DIR="/var/www/masterpanel"
-mkdir -p "$WEB_DIR"
-ok "پوشه $WEB_DIR ساخته شد"
-
-# ══════════════════════════════════════════════════════════════════
-# SECTION 4 — GENERATE THE WEB PANEL (HTML/JS)
-# ══════════════════════════════════════════════════════════════════
-step 6 "تولید داشبورد وب..."
-
-# We inject the server config into the HTML at install time
-cat > "${WEB_DIR}/config.js" << CONFIGEOF
-// Auto-generated by Master Panel Installer — DO NOT EDIT MANUALLY
-window.MASTER_CONFIG = {
-  xuiBase:    "http://${SERVER_HOST}:${XUI_PORT}",
-  proxyBase:  "",
-  username:   "${PANEL_USER}",
-  password:   "${PANEL_PASS}",
-  serverHost: "${SERVER_HOST}",
-  panelPort:  "${PANEL_PORT}",
-  xuiPort:    "${XUI_PORT}",
-  version:    "4.0.0"
-};
-CONFIGEOF
-
-# ── Generate main index.html ────────────────────────────────────
-cat > "${WEB_DIR}/index.html" << 'HTMLEOF'
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Master Panel — X-UI سنایی</title>
-<script src="config.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
-/* ═══════════════════════════════════════════════════════
-   MASTER PANEL — DESIGN SYSTEM
-   Aesthetic: Refined Dark / Persian Cyber
-   ═══════════════════════════════════════════════════════ */
-:root {
-  --bg:       #07090d;
-  --bg1:      #0c1018;
-  --bg2:      #111720;
-  --bg3:      #182030;
-  --bg4:      #1e2a3d;
-  --border:   #1c2b40;
-  --borderhi: #243650;
-
-  --c:        #00e5ff;   /* cyan accent */
-  --c2:       #00b8d4;
-  --g:        #00e676;   /* green */
-  --g2:       #00c853;
-  --r:        #ff4569;   /* red */
-  --y:        #ffd740;   /* yellow */
-  --p:        #ea80fc;   /* purple */
-  --o:        #ff6d00;   /* orange */
-
-  --t0:  #deeaf6;
-  --t1:  #7a9cc0;
-  --t2:  #3d5a78;
-  --t3:  #1e3650;
-
-  --font:  'Vazirmatn', sans-serif;
-  --mono:  'JetBrains Mono', monospace;
-  --r-sm:  6px; --r-md: 12px; --r-lg: 18px; --r-xl: 28px;
-}
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; }
-body {
-  font-family: var(--font);
-  background: var(--bg);
-  color: var(--t0);
-  min-height: 100vh;
-  direction: rtl;
-  overflow-x: hidden;
-}
-
-/* ── animated bg ── */
-body::before {
-  content: '';
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background:
-    radial-gradient(ellipse 60% 40% at 15% 15%, rgba(0,229,255,.05) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 50% at 85% 85%, rgba(0,230,118,.04) 0%, transparent 70%),
-    repeating-linear-gradient(0deg,   transparent, transparent 48px, rgba(28,43,64,.25) 48px, rgba(28,43,64,.25) 49px),
-    repeating-linear-gradient(90deg,  transparent, transparent 48px, rgba(28,43,64,.15) 48px, rgba(28,43,64,.15) 49px);
-}
-
-/* ══ LAYOUT ══ */
-.layout { display: flex; min-height: 100vh; position: relative; z-index: 1; }
-
-/* ══ SIDEBAR ══ */
-.sidebar {
-  width: 256px; flex-shrink: 0;
-  background: var(--bg1);
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 90;
-  overflow-y: auto;
-}
-.sb-logo {
-  padding: 24px 18px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 12px;
-}
-.sb-logo-icon {
-  width: 44px; height: 44px; border-radius: var(--r-md); flex-shrink: 0;
-  background: linear-gradient(135deg, var(--c), var(--g));
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px; box-shadow: 0 0 20px rgba(0,229,255,.2);
-}
-.sb-logo-txt strong { display: block; font-size: 1rem; font-weight: 800; color: var(--t0); }
-.sb-logo-txt span   { font-size: .7rem; color: var(--t2); font-family: var(--mono); }
-
-.sb-server {
-  margin: 14px 16px 0;
-  padding: 9px 12px;
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  font-size: .72rem; font-family: var(--mono); color: var(--t1);
-  display: flex; align-items: center; gap: 8px;
-}
-.sb-server .dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--g); flex-shrink: 0;
-  box-shadow: 0 0 8px var(--g);
-  animation: blink 2.4s ease-in-out infinite;
-}
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-
-.sb-nav { flex: 1; padding: 16px 12px; }
-.sb-lbl {
-  font-size: .67rem; font-weight: 700; letter-spacing: .12em;
-  color: var(--t3); text-transform: uppercase;
-  padding: 12px 8px 5px;
-}
-.nav-btn {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: var(--r-md);
-  cursor: pointer; color: var(--t1);
-  font-size: .88rem; font-weight: 500;
-  border: 1px solid transparent;
-  margin-bottom: 2px;
-  transition: all .16s ease;
-  background: none; width: 100%; text-align: right;
-}
-.nav-btn:hover  { background: var(--bg3); color: var(--t0); border-color: var(--border); }
-.nav-btn.active { background: linear-gradient(135deg,rgba(0,229,255,.1),rgba(0,230,118,.06)); border-color: rgba(0,229,255,.3); color: var(--c); }
-.nav-btn .ni { width: 22px; text-align: center; font-size: 1.05rem; flex-shrink: 0; }
-.nb-count {
-  margin-right: auto; font-size: .67rem; font-weight: 700;
-  padding: 2px 8px; border-radius: 20px;
-  background: rgba(0,229,255,.12); color: var(--c);
-  border: 1px solid rgba(0,229,255,.2);
-}
-
-.sb-footer {
-  padding: 14px 18px;
-  border-top: 1px solid var(--border);
-  font-size: .72rem; color: var(--t3);
-  font-family: var(--mono);
-}
-
-/* ══ MAIN ══ */
-.main { flex:1; margin-right: 256px; display: flex; flex-direction: column; min-height: 100vh; }
-
-/* ── topbar ── */
-.topbar {
-  height: 58px; padding: 0 26px;
-  background: rgba(12,16,24,.85); backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 14px;
-  position: sticky; top: 0; z-index: 50;
-}
-.topbar-title { font-size: 1.05rem; font-weight: 700; flex: 1; }
-.topbar-actions { display: flex; gap: 8px; align-items: center; }
-
-/* ══ BUTTONS ══ */
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 16px; border-radius: var(--r-sm);
-  font-family: var(--font); font-size: .82rem; font-weight: 600;
-  cursor: pointer; border: 1px solid transparent;
-  transition: all .15s ease; text-decoration: none; white-space: nowrap;
-}
-.btn-cyan    { background:linear-gradient(135deg,var(--c),var(--c2)); color:var(--bg); border-color:var(--c); box-shadow:0 0 16px rgba(0,229,255,.25); }
-.btn-cyan:hover { filter:brightness(1.1); transform:translateY(-1px); }
-.btn-green   { background:rgba(0,230,118,.12); color:var(--g); border-color:rgba(0,230,118,.3); }
-.btn-green:hover { background:rgba(0,230,118,.2); }
-.btn-red     { background:rgba(255,69,105,.1); color:var(--r); border-color:rgba(255,69,105,.25); }
-.btn-red:hover { background:rgba(255,69,105,.2); }
-.btn-ghost   { background:var(--bg3); color:var(--t1); border-color:var(--border); }
-.btn-ghost:hover { background:var(--bg4); color:var(--t0); }
-.btn-yellow  { background:rgba(255,215,64,.1); color:var(--y); border-color:rgba(255,215,64,.25); }
-.btn-purple  { background:rgba(234,128,252,.1); color:var(--p); border-color:rgba(234,128,252,.25); }
-.btn-sm { padding: 5px 11px; font-size: .76rem; }
-.btn-lg { padding: 12px 24px; font-size: .95rem; }
-.btn-full { width: 100%; justify-content: center; }
-
-/* Magic button */
-.btn-magic {
-  background: linear-gradient(135deg, #00e5ff, #00e676, #ea80fc);
-  background-size: 200% 200%; color: var(--bg);
-  border: none; font-weight: 800;
-  animation: gradshift 3s ease infinite;
-  box-shadow: 0 0 30px rgba(0,229,255,.3);
-}
-.btn-magic:hover { filter:brightness(1.1); transform:translateY(-2px); box-shadow:0 4px 40px rgba(0,229,255,.45); }
-@keyframes gradshift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
-
-/* ══ PAGE CONTENT ══ */
-.page { padding: 26px; flex: 1; }
-.section { display: none; animation: fadeUp .22s ease; }
-.section.active { display: block; }
-@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-
-/* ══ SECTION HEADER ══ */
-.s-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:22px; gap:12px; flex-wrap:wrap; }
-.s-title  { font-size:1.35rem; font-weight:800; background:linear-gradient(90deg,var(--t0),var(--t1)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-.s-sub    { font-size:.8rem; color:var(--t2); margin-top:3px; }
-
-/* ══ STATS ══ */
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:24px; }
-.stat {
-  background:var(--bg2); border:1px solid var(--border);
-  border-radius:var(--r-lg); padding:18px 16px;
-  position:relative; overflow:hidden; cursor:default;
-  transition: all .2s ease;
-}
-.stat::after {
-  content:''; position:absolute; top:-20px; left:-20px;
-  width:80px; height:80px; border-radius:50%;
-  background:var(--ac,var(--c)); opacity:.05;
-  transition: opacity .2s ease;
-}
-.stat:hover { border-color:var(--borderhi); transform:translateY(-2px); }
-.stat:hover::after { opacity:.1; }
-.stat-val  { font-size:1.9rem; font-weight:900; font-family:var(--mono); color:var(--ac,var(--c)); line-height:1; }
-.stat-lbl  { font-size:.78rem; color:var(--t2); margin-top:6px; }
-.stat-icon { font-size:1.3rem; margin-bottom:10px; }
-
-/* ══ CARD ══ */
-.card {
-  background:var(--bg2); border:1px solid var(--border);
-  border-radius:var(--r-lg); overflow:hidden; margin-bottom:18px;
-}
-.card-hd {
-  padding:14px 18px; border-bottom:1px solid var(--border);
-  display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
-}
-.card-title { font-size:.93rem; font-weight:700; color:var(--t0); }
-.card-body  { padding:18px; }
-
-/* ══ TABLE ══ */
-.tbl-wrap { overflow-x:auto; }
-table { width:100%; border-collapse:collapse; }
-thead tr { background:var(--bg3); }
-th { padding:10px 14px; text-align:right; font-size:.72rem; font-weight:700; color:var(--t2); letter-spacing:.06em; text-transform:uppercase; border-bottom:1px solid var(--border); white-space:nowrap; }
-td { padding:12px 14px; font-size:.84rem; color:var(--t1); border-bottom:1px solid rgba(28,43,64,.5); vertical-align:middle; }
-tr:last-child td { border-bottom:none; }
-tbody tr { transition:background .1s; }
-tbody tr:hover { background:rgba(255,255,255,.02); }
-
-/* ══ BADGES ══ */
-.badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:.7rem; font-weight:700; white-space:nowrap; border:1px solid; }
-.bg    { color:var(--g);  border-color:rgba(0,230,118,.3);  background:rgba(0,230,118,.1); }
-.br    { color:var(--r);  border-color:rgba(255,69,105,.3);  background:rgba(255,69,105,.1); }
-.by    { color:var(--y);  border-color:rgba(255,215,64,.3);  background:rgba(255,215,64,.1); }
-.bc    { color:var(--c);  border-color:rgba(0,229,255,.3);  background:rgba(0,229,255,.1); }
-.bw    { color:var(--t2); border-color:var(--border);        background:var(--bg3); }
-
-/* Protocol chips */
-.pc { display:inline-block; padding:3px 8px; border-radius:var(--r-sm); font-family:var(--mono); font-size:.7rem; font-weight:700; border:1px solid; }
-.pc-vless  { color:#64b5f6; border-color:#1a3a5c; background:rgba(100,181,246,.08); }
-.pc-vmess  { color:#a5d6a7; border-color:#1a3a1a; background:rgba(165,214,167,.08); }
-.pc-trojan { color:#ef9a9a; border-color:#3a1a1a; background:rgba(239,154,154,.08); }
-.pc-hy2    { color:#ce93d8; border-color:#2a1a3a; background:rgba(206,147,216,.08); }
-.pc-ss     { color:#ffe082; border-color:#3a2e10; background:rgba(255,224,130,.08); }
-
-/* ══ PROGRESS ══ */
-.progress { background:var(--bg3); border-radius:20px; height:5px; overflow:hidden; }
-.pf { height:100%; border-radius:20px; background:linear-gradient(90deg,var(--c),var(--g)); transition:width .5s ease; }
-.pf.danger { background:linear-gradient(90deg,var(--y),var(--r)); }
-
-/* ══ FORMS ══ */
-.fg { margin-bottom:16px; }
-.fl { display:block; margin-bottom:6px; font-size:.8rem; font-weight:600; color:var(--t1); }
-.fl .req { color:var(--r); }
-.fc {
-  width:100%; padding:10px 13px;
-  background:var(--bg3); border:1px solid var(--border);
-  border-radius:var(--r-sm); color:var(--t0);
-  font-family:var(--font); font-size:.86rem;
-  outline:none; direction:rtl;
-  transition:border-color .15s ease, box-shadow .15s ease;
-}
-.fc:focus { border-color:rgba(0,229,255,.4); box-shadow:0 0 0 3px rgba(0,229,255,.07); }
-.fc::placeholder { color:var(--t3); }
-select.fc { cursor:pointer; }
-.fg2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-
-/* ══ MODAL ══ */
-.overlay {
-  position:fixed; inset:0; z-index:200;
-  background:rgba(0,0,0,.75); backdrop-filter:blur(6px);
-  display:flex; align-items:center; justify-content:center; padding:16px;
-  opacity:0; pointer-events:none; transition:opacity .2s ease;
-}
-.overlay.open { opacity:1; pointer-events:all; }
-.modal {
-  background:var(--bg2); border:1px solid var(--borderhi);
-  border-radius:var(--r-xl); width:100%; max-width:580px;
-  max-height:92vh; overflow-y:auto;
-  box-shadow:0 30px 100px rgba(0,0,0,.7);
-  transform:translateY(24px) scale(.96);
-  transition:transform .28s cubic-bezier(.34,1.56,.64,1);
-}
-.overlay.open .modal { transform:translateY(0) scale(1); }
-.modal-hd {
-  padding:20px 22px 16px; border-bottom:1px solid var(--border);
-  display:flex; align-items:center; justify-content:space-between;
-}
-.modal-title { font-size:1rem; font-weight:800; }
-.modal-x {
-  width:30px; height:30px; border-radius:var(--r-sm);
-  background:var(--bg3); border:1px solid var(--border);
-  color:var(--t2); cursor:pointer; font-size:.9rem;
-  display:flex; align-items:center; justify-content:center;
-  transition:all .15s ease;
-}
-.modal-x:hover { color:var(--t0); background:var(--bg4); }
-.modal-bd { padding:20px 22px; }
-.modal-ft { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:8px; }
-
-/* ══ CONFIG BOX ══ */
-.cfgbox {
-  background:var(--bg); border:1px solid var(--border);
-  border-radius:var(--r-md); padding:12px 14px;
-  font-family:var(--mono); font-size:.75rem; color:var(--c);
-  word-break:break-all; line-height:1.7;
-  position:relative; white-space:pre-wrap;
-}
-.cfgbox-lbl { font-size:.68rem; color:var(--t2); margin-bottom:4px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
-
-/* ══ SUB LINK BOX ══ */
-.subbox {
-  background:linear-gradient(135deg,rgba(0,229,255,.06),rgba(0,230,118,.04));
-  border:1px solid rgba(0,229,255,.2);
-  border-radius:var(--r-lg); padding:18px 20px;
-  margin-top:16px;
-}
-.subbox-title { font-size:.85rem; font-weight:700; color:var(--c); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
-.subbox-url {
-  font-family:var(--mono); font-size:.75rem; color:var(--g);
-  background:var(--bg); padding:8px 12px; border-radius:var(--r-sm);
-  border:1px solid var(--border); word-break:break-all;
-}
-
-/* ══ CONFIGS PANEL ══ */
-.cfg-proto-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-.cfg-tab {
-  padding:5px 12px; border-radius:20px; font-size:.75rem; font-weight:700;
-  border:1px solid var(--border); cursor:pointer; background:var(--bg3); color:var(--t2);
-  transition:all .15s ease;
-}
-.cfg-tab.active-vless  { border-color:rgba(100,181,246,.4); background:rgba(100,181,246,.1); color:#64b5f6; }
-.cfg-tab.active-vmess  { border-color:rgba(165,214,167,.4); background:rgba(165,214,167,.1); color:#a5d6a7; }
-.cfg-tab.active-trojan { border-color:rgba(239,154,154,.4); background:rgba(239,154,154,.1); color:#ef9a9a; }
-.cfg-tab.active-hy2    { border-color:rgba(206,147,216,.4); background:rgba(206,147,216,.1); color:#ce93d8; }
-
-/* ══ TOAST ══ */
-#toasts {
-  position:fixed; bottom:22px; left:22px; z-index:9999;
-  display:flex; flex-direction:column; gap:9px;
-}
-.toast {
-  padding:11px 16px; border-radius:var(--r-md);
-  font-size:.83rem; font-weight:500; min-width:220px; max-width:340px;
-  display:flex; align-items:center; gap:9px; border-left:3px solid;
-  animation:slideIn .22s ease; box-shadow:0 8px 30px rgba(0,0,0,.5);
-}
-@keyframes slideIn { from{opacity:0;transform:translateX(-16px)} to{opacity:1;transform:translateX(0)} }
-.toast.s { background:rgba(0,230,118,.1);  border-color:var(--g); color:var(--g); }
-.toast.e { background:rgba(255,69,105,.1); border-color:var(--r); color:var(--r); }
-.toast.i { background:rgba(0,229,255,.1);  border-color:var(--c); color:var(--c); }
-.toast.w { background:rgba(255,215,64,.1); border-color:var(--y); color:var(--y); }
-.toast-out { animation:slideOut .25s ease forwards; }
-@keyframes slideOut { to{opacity:0;transform:translateX(-12px)} }
-
-/* ══ LOADING ══ */
-.spin {
-  width:20px; height:20px; border-radius:50%;
-  border:2px solid var(--border); border-top-color:var(--c);
-  animation:spin .65s linear infinite; display:inline-block;
-}
-@keyframes spin { to{transform:rotate(360deg)} }
-.loading-row td { text-align:center; padding:32px; color:var(--t2); }
-
-/* ══ DIVIDER ══ */
-.dv { height:1px; background:var(--border); margin:16px 0; }
-
-/* ══ MONO TEXT ══ */
-.mono { font-family:var(--mono); font-size:.78rem; color:var(--c); word-break:break-all; }
-
-/* ══ EMPTY STATE ══ */
-.empty { text-align:center; padding:44px 20px; color:var(--t2); }
-.empty .ei { font-size:2.8rem; opacity:.35; margin-bottom:14px; }
-
-/* ══ COPY BTN ══ */
-.copy-btn {
-  position:absolute; top:8px; left:8px;
-  padding:3px 9px; font-size:.68rem;
-  background:var(--bg3); border:1px solid var(--border);
-  border-radius:var(--r-sm); color:var(--t1);
-  cursor:pointer; transition:all .12s ease; font-family:var(--font);
-}
-.copy-btn:hover { color:var(--c); border-color:rgba(0,229,255,.3); }
-
-/* ══ SCROLLBAR ══ */
-::-webkit-scrollbar { width:4px; height:4px; }
-::-webkit-scrollbar-track { background:var(--bg1); }
-::-webkit-scrollbar-thumb { background:var(--borderhi); border-radius:3px; }
-
-/* ══ RESPONSIVE ══ */
-@media(max-width:860px){
-  .sidebar { transform:translateX(256px); transition:transform .25s ease; }
-  .sidebar.open { transform:translateX(0); }
-  .main { margin-right:0; }
-  .fg2 { grid-template-columns:1fr; }
-  .stats { grid-template-columns:1fr 1fr; }
-  .mobile-menu-btn { display:flex !important; }
-}
-.mobile-menu-btn {
-  display:none; width:36px; height:36px; align-items:center; justify-content:center;
-  background:var(--bg3); border:1px solid var(--border); border-radius:var(--r-sm);
-  cursor:pointer; font-size:1.1rem; color:var(--t1);
-}
-</style>
-</head>
-<body>
-
-<!-- ══ LAYOUT ══ -->
-<div class="layout">
-
-<!-- SIDEBAR -->
-<nav class="sidebar" id="sidebar">
-  <div class="sb-logo">
-    <div class="sb-logo-icon">🛡️</div>
-    <div class="sb-logo-txt">
-      <strong>Master Panel</strong>
-      <span id="sb-host">X-UI Sanaei v4.0</span>
-    </div>
-  </div>
-  <div class="sb-server">
-    <span class="dot"></span>
-    <span id="sb-ip">در حال اتصال...</span>
-  </div>
-  <div class="sb-nav">
-    <div class="sb-lbl">داشبورد</div>
-    <button class="nav-btn active" onclick="showPage('dashboard',this)">
-      <span class="ni">📊</span> داشبورد اصلی
-    </button>
-    <div class="sb-lbl">مدیریت</div>
-    <button class="nav-btn" onclick="showPage('users',this)">
-      <span class="ni">👥</span> کاربران
-      <span class="nb-count" id="nb-users">0</span>
-    </button>
-    <button class="nav-btn" onclick="showPage('inbounds',this)">
-      <span class="ni">⚙️</span> اینباندها
-      <span class="nb-count" id="nb-ibs">0</span>
-    </button>
-    <div class="sb-lbl">ابزارها</div>
-    <button class="nav-btn" onclick="showPage('configs',this)">
-      <span class="ni">🔧</span> تولید کانفیگ
-    </button>
-    <button class="nav-btn" onclick="showPage('subscription',this)">
-      <span class="ni">🔗</span> ساب‌اسکریپشن
-    </button>
-  </div>
-  <div class="sb-footer">v4.0.0 — Master Panel</div>
-</nav>
-
-<!-- MAIN -->
-<main class="main">
-  <header class="topbar">
-    <button class="mobile-menu-btn" id="menu-btn" onclick="toggleSidebar()">☰</button>
-    <div class="topbar-title" id="topbar-title">داشبورد اصلی</div>
-    <div class="topbar-actions">
-      <button class="btn btn-ghost btn-sm" onclick="loadAll()">🔄 بروزرسانی</button>
-      <button class="btn btn-cyan btn-sm" onclick="openAddUser()">➕ کاربر جدید</button>
-    </div>
-  </header>
-
-  <div class="page">
-
-    <!-- ════ DASHBOARD ════ -->
-    <div class="section active" id="pg-dashboard">
-      <div class="s-header">
-        <div>
-          <div class="s-title">داشبورد اصلی</div>
-          <div class="s-sub">وضعیت کلی سرور و کاربران</div>
-        </div>
-      </div>
-      <div class="stats" id="dash-stats">
-        <div class="stat" style="--ac:var(--c)"><div class="stat-icon">👥</div><div class="stat-val" id="ds-users">—</div><div class="stat-lbl">کل کاربران</div></div>
-        <div class="stat" style="--ac:var(--g)"><div class="stat-icon">✅</div><div class="stat-val" id="ds-active">—</div><div class="stat-lbl">کاربران فعال</div></div>
-        <div class="stat" style="--ac:var(--r)"><div class="stat-icon">⏰</div><div class="stat-val" id="ds-expired">—</div><div class="stat-lbl">منقضی‌شده</div></div>
-        <div class="stat" style="--ac:var(--y)"><div class="stat-icon">⬆️</div><div class="stat-val" id="ds-up">—</div><div class="stat-lbl">کل آپلود</div></div>
-        <div class="stat" style="--ac:var(--o)"><div class="stat-icon">⬇️</div><div class="stat-val" id="ds-down">—</div><div class="stat-lbl">کل دانلود</div></div>
-        <div class="stat" style="--ac:var(--p)"><div class="stat-icon">⚙️</div><div class="stat-val" id="ds-ibs">—</div><div class="stat-lbl">اینباندها</div></div>
-      </div>
-      <div class="card">
-        <div class="card-hd">
-          <span class="card-title">🏆 پرمصرف‌ترین کاربران</span>
-          <button class="btn btn-ghost btn-sm" onclick="showPage('users',document.querySelector('.nav-btn:nth-child(3)'))">مشاهده همه</button>
-        </div>
-        <div class="tbl-wrap">
-          <table><thead><tr><th>نام</th><th>پروتکل</th><th>مصرف</th><th>ترافیک</th><th>انقضا</th><th>وضعیت</th></tr></thead>
-          <tbody id="dash-top-users"><tr class="loading-row"><td colspan="6"><span class="spin"></span></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ════ USERS ════ -->
-    <div class="section" id="pg-users">
-      <div class="s-header">
-        <div><div class="s-title">مدیریت کاربران</div><div class="s-sub">ایجاد، ویرایش، و کانفیگ کلاینت‌ها</div></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input class="fc" id="user-search" placeholder="🔍 جستجو..." style="width:180px" oninput="filterUsers()">
-          <button class="btn btn-cyan" onclick="openAddUser()">➕ کاربر جدید</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="tbl-wrap">
-          <table><thead><tr><th>نام کاربر</th><th>اینباند</th><th>مصرف / حجم</th><th>انقضا</th><th>وضعیت</th><th>عملیات</th></tr></thead>
-          <tbody id="users-tbody"><tr class="loading-row"><td colspan="6"><span class="spin"></span></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ════ INBOUNDS ════ -->
-    <div class="section" id="pg-inbounds">
-      <div class="s-header">
-        <div><div class="s-title">مدیریت اینباندها</div><div class="s-sub">پروتکل‌ها و تنظیمات اتصال</div></div>
-        <button class="btn btn-cyan" onclick="openAddInbound()">➕ اینباند جدید</button>
-      </div>
-      <div class="card">
-        <div class="tbl-wrap">
-          <table><thead><tr><th>ID</th><th>نام</th><th>پروتکل</th><th>پورت</th><th>Transport</th><th>Security</th><th>ترافیک</th><th>وضعیت</th><th>عملیات</th></tr></thead>
-          <tbody id="ibs-tbody"><tr class="loading-row"><td colspan="9"><span class="spin"></span></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ════ CONFIGS ════ -->
-    <div class="section" id="pg-configs">
-      <div class="s-header">
-        <div><div class="s-title">تولید کانفیگ</div><div class="s-sub">ساخت لینک اتصال برای کاربر</div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:300px 1fr;gap:18px">
-        <div>
-          <div class="card">
-            <div class="card-hd"><span class="card-title">⚙️ پارامترها</span></div>
-            <div class="card-body">
-              <div class="fg"><label class="fl">کاربر</label>
-                <select class="fc" id="cfg-user-sel" onchange="onCfgUserChange()"><option value="">انتخاب کاربر...</option></select>
-              </div>
-              <div class="fg"><label class="fl">نوع اتصال</label>
-                <select class="fc" id="cfg-conn">
-                  <option value="direct">مستقیم (Direct IP)</option>
-                  <option value="cdn">Cloudflare CDN</option>
-                  <option value="cleanip">IP تمیز CF</option>
-                </select>
-              </div>
-              <div class="fg" id="cfg-cf-domain-wrap" style="display:none">
-                <label class="fl">دامنه CDN</label>
-                <input class="fc" id="cfg-cf-domain" placeholder="vpn.example.com">
-              </div>
-              <button class="btn btn-magic btn-full btn-lg" onclick="generateAllConfigs()" id="cfg-magic-btn">
-                ✨ ایجاد تمام کانفیگ‌ها
-              </button>
-            </div>
-          </div>
-        </div>
-        <div id="cfg-output-area">
-          <div class="card" style="height:100%">
-            <div class="card-body">
-              <div class="empty"><div class="ei">🔧</div><p>کاربری انتخاب کرده و «ایجاد تمام کانفیگ‌ها» را بزنید</p></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ════ SUBSCRIPTION ════ -->
-    <div class="section" id="pg-subscription">
-      <div class="s-header">
-        <div><div class="s-title">ساب‌اسکریپشن</div><div class="s-sub">لینک اشتراک کلاینت‌ها</div></div>
-      </div>
-      <div style="max-width:560px">
-        <div class="card">
-          <div class="card-hd"><span class="card-title">🔗 تولید لینک ساب</span></div>
-          <div class="card-body">
-            <div class="fg"><label class="fl">انتخاب کاربر</label>
-              <select class="fc" id="sub-user-sel"><option value="">انتخاب کاربر...</option></select>
-            </div>
-            <button class="btn btn-cyan btn-full" onclick="generateSubLink()">🔗 تولید لینک ساب‌اسکریپشن</button>
-            <div id="sub-result" style="margin-top:16px;display:none">
-              <div class="subbox">
-                <div class="subbox-title">🔗 لینک ساب‌اسکریپشن شما</div>
-                <div class="subbox-url" id="sub-url-display"></div>
-                <div style="display:flex;gap:8px;margin-top:12px">
-                  <button class="btn btn-cyan btn-sm" onclick="copySubLink()">📋 کپی لینک</button>
-                  <button class="btn btn-ghost btn-sm" id="sub-qr-btn" onclick="toggleSubQR()">📷 QR Code</button>
-                </div>
-                <div id="sub-qr-area" style="display:none;margin-top:12px;text-align:center">
-                  <canvas id="sub-qr-canvas" style="border-radius:8px;max-width:160px"></canvas>
-                </div>
-              </div>
-              <div class="dv"></div>
-              <div id="sub-configs-list"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /page -->
-</main>
-</div><!-- /layout -->
-
-<!-- ════════════════════════════════
-     MODALS
-════════════════════════════════ -->
-
-<!-- Add User -->
-<div class="overlay" id="modal-add-user">
-<div class="modal">
-  <div class="modal-hd">
-    <div class="modal-title">➕ کاربر جدید</div>
-    <button class="modal-x" onclick="closeModal('modal-add-user')">✕</button>
-  </div>
-  <div class="modal-bd">
-    <div class="fg">
-      <label class="fl">اینباند <span class="req">*</span></label>
-      <select class="fc" id="au-inbound"><option value="">انتخاب اینباند...</option></select>
-    </div>
-    <div class="fg2">
-      <div class="fg"><label class="fl">ایمیل/نام <span class="req">*</span></label>
-        <input class="fc" id="au-email" placeholder="user_001"></div>
-      <div class="fg"><label class="fl">حجم (GB)</label>
-        <input class="fc" id="au-traffic" type="number" value="0" min="0"></div>
-    </div>
-    <div class="fg2">
-      <div class="fg"><label class="fl">روز انقضا</label>
-        <input class="fc" id="au-days" type="number" value="30" min="0"></div>
-      <div class="fg"><label class="fl">محدودیت IP</label>
-        <input class="fc" id="au-iplimit" type="number" value="0" min="0"></div>
-    </div>
-  </div>
-  <div class="modal-ft">
-    <button class="btn btn-cyan" onclick="addUser()">✅ ایجاد کاربر</button>
-    <button class="btn btn-ghost" onclick="closeModal('modal-add-user')">انصراف</button>
-  </div>
-</div>
-</div>
-
-<!-- Add Inbound -->
-<div class="overlay" id="modal-add-inbound">
-<div class="modal">
-  <div class="modal-hd">
-    <div class="modal-title">➕ اینباند جدید</div>
-    <button class="modal-x" onclick="closeModal('modal-add-inbound')">✕</button>
-  </div>
-  <div class="modal-bd">
-    <div class="fg2">
-      <div class="fg"><label class="fl">پروتکل <span class="req">*</span></label>
-        <select class="fc" id="ib-proto">
-          <option value="vless">VLESS</option>
-          <option value="vmess">VMess</option>
-          <option value="trojan">Trojan</option>
-          <option value="shadowsocks">ShadowSocks</option>
-          <option value="hysteria2">Hysteria2</option>
-        </select>
-      </div>
-      <div class="fg"><label class="fl">پورت <span class="req">*</span></label>
-        <input class="fc" id="ib-port" type="number" placeholder="مثال: 443"></div>
-    </div>
-    <div class="fg"><label class="fl">نام (Remark)</label>
-      <input class="fc" id="ib-remark" placeholder="مثال: VLESS-Reality"></div>
-    <div class="fg2">
-      <div class="fg"><label class="fl">Transport</label>
-        <select class="fc" id="ib-network">
-          <option value="tcp">TCP</option><option value="ws">WebSocket</option>
-          <option value="grpc">gRPC</option><option value="xhttp">XHTTP</option>
-          <option value="h2">HTTP/2</option><option value="quic">QUIC</option>
-        </select>
-      </div>
-      <div class="fg"><label class="fl">Security</label>
-        <select class="fc" id="ib-security">
-          <option value="none">None</option><option value="tls">TLS</option>
-          <option value="reality">Reality</option><option value="xtls">XTLS</option>
-        </select>
-      </div>
-    </div>
-  </div>
-  <div class="modal-ft">
-    <button class="btn btn-cyan" onclick="addInbound()">✅ ایجاد</button>
-    <button class="btn btn-ghost" onclick="closeModal('modal-add-inbound')">انصراف</button>
-  </div>
-</div>
-</div>
-
-<!-- All Configs Modal (Magic Button Result) -->
-<div class="overlay" id="modal-all-configs">
-<div class="modal" style="max-width:680px">
-  <div class="modal-hd">
-    <div class="modal-title" id="mac-title">✨ کانفیگ‌های کاربر</div>
-    <button class="modal-x" onclick="closeModal('modal-all-configs')">✕</button>
-  </div>
-  <div class="modal-bd" id="mac-body">
-  </div>
-  <div class="modal-ft">
-    <button class="btn btn-magic" onclick="copyAllLinks()" id="copy-all-btn">📋 کپی همه لینک‌ها</button>
-    <button class="btn btn-ghost" onclick="closeModal('modal-all-configs')">بستن</button>
-  </div>
-</div>
-</div>
-
-<!-- Toast Container -->
-<div id="toasts"></div>
-
-<!-- ════════════════════════════════
-     JAVASCRIPT ENGINE
-════════════════════════════════ -->
-<script>
-// ══════════════════════════════════════
-// CONFIGURATION (injected by installer)
-// ══════════════════════════════════════
-const CFG = window.MASTER_CONFIG || {
-  xuiBase:    'http://localhost:2053',
-  username:   'admin',
-  password:   'admin',
-  serverHost: window.location.hostname,
-  panelPort:  '8080',
-  xuiPort:    '2053',
-  version:    '4.0.0'
-};
-
-// ══════════════════════════════════════
-// STATE
-// ══════════════════════════════════════
-const S = {
-  inbounds: [],
-  users:    [],       // client_traffics merged with inbound settings
-  rawInbounds: [],    // raw from API
-  loggedIn: false,
-  sessionCookie: '',
-};
-
-// ══════════════════════════════════════
-// INIT
-// ══════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('sb-ip').textContent    = CFG.serverHost;
-  document.getElementById('sb-host').textContent  = `X-UI :${CFG.xuiPort}`;
-  document.getElementById('cfg-conn').addEventListener('change', onConnTypeChange);
-  await loginAndLoad();
-});
-
-// ══════════════════════════════════════
-// API LAYER — calls through nginx proxy at /api/
-// ══════════════════════════════════════
-async function api(path, method = 'GET', body = null) {
-  const url = `/api${path}`;
-  const opts = {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  };
-  if (body) opts.body = new URLSearchParams(body).toString();
-  try {
-    const res = await fetch(url, opts);
-    const ct  = res.headers.get('content-type') || '';
-    if (ct.includes('application/json')) return res.json();
-    const text = await res.text();
-    try { return JSON.parse(text); } catch { return { success: res.ok, raw: text }; }
-  } catch (e) {
-    return { success: false, msg: e.message };
-  }
-}
-
-async function login() {
-  const r = await api('/login', 'POST', { username: CFG.username, password: CFG.password });
-  S.loggedIn = r?.success === true;
-  return S.loggedIn;
-}
-
-async function loginAndLoad() {
-  toast('در حال اتصال به X-UI...', 'i');
-  const ok = await login();
-  if (!ok) { toast('اتصال ناموفق — داده‌های نمونه نمایش داده می‌شوند', 'w'); loadMockData(); return; }
-  toast('اتصال برقرار شد ✓', 's');
-  await loadAll();
-}
-
-async function loadAll() {
-  await Promise.all([ loadInbounds() ]);
-}
-
-async function loadInbounds() {
-  const r = await api('/xui/API/inbounds');
-  if (!r?.success) return;
-  S.rawInbounds = r.obj || [];
-  S.inbounds    = S.rawInbounds.map(ib => ({
-    id:       ib.id,
-    remark:   ib.remark,
-    protocol: ib.protocol,
-    port:     ib.port,
-    enable:   ib.enable,
-    up:       ib.up || 0,
-    down:     ib.down || 0,
-    total:    ib.total || 0,
-    expiryTime: ib.expiryTime || 0,
-    network:  safeJsonGet(ib.streamSettings, 'network', 'tcp'),
-    security: safeJsonGet(ib.streamSettings, 'security', 'none'),
-    settings: ib.settings,
-    streamSettings: ib.streamSettings,
-  }));
-
-  // Flatten users from all inbounds
-  S.users = [];
-  S.inbounds.forEach(ib => {
-    const parsed = safeParseJson(ib.settings);
-    const clients = parsed?.clients || [];
-    clients.forEach(c => {
-      S.users.push({
-        email:      c.email || 'unknown',
-        uuid:       c.id   || '',
-        password:   c.password || '',
-        inboundId:  ib.id,
-        inbound:    ib,
-        enable:     c.enable !== false,
-        totalGB:    c.totalGB || 0,
-        expiryTime: c.expiryTime || 0,
-        up: 0, down: 0,
-      });
-    });
-  });
-
-  // Merge client_traffics
-  const trafficR = await api('/xui/API/inbounds');  // traffic comes with inbounds
-  S.rawInbounds.forEach(ib => {
-    const trafficArr = ib.clientStats || [];
-    trafficArr.forEach(tr => {
-      const u = S.users.find(x => x.email === tr.email && x.inboundId === ib.id);
-      if (u) { u.up = tr.up || 0; u.down = tr.down || 0; }
-    });
-  });
-
-  renderDashboard();
-  renderUsersTable();
-  renderInboundsTable();
-  populateSelects();
-}
-
-function safeJsonGet(str, key, def) {
-  try { return JSON.parse(str)?.[key] ?? def; } catch { return def; }
-}
-function safeParseJson(str) {
-  try { return JSON.parse(str); } catch { return {}; }
-}
-
-// ══════════════════════════════════════
-// MOCK DATA (fallback when API unavailable)
-// ══════════════════════════════════════
-function loadMockData() {
-  const protos = ['vless','vmess','trojan','hysteria2','shadowsocks'];
-  const nets   = ['tcp','ws','grpc','xhttp','h2'];
-  const secs   = ['reality','tls','none','xtls','tls'];
-  S.inbounds = Array.from({length:5},(_,i)=>({
-    id:i+1, remark:`اینباند-${i+1}-${protos[i].toUpperCase()}`,
-    protocol:protos[i], port:10000+i*1000, enable:i!==3,
-    up:Math.floor(Math.random()*4e9), down:Math.floor(Math.random()*15e9),
-    total:0, expiryTime:0, network:nets[i], security:secs[i],
-  }));
-  const now = Date.now();
-  S.users = Array.from({length:10},(_,i)=>{
-    const total=(i%4+1)*10*1073741824;
-    const used=Math.floor(Math.random()*total);
-    const ib=S.inbounds[i%5];
-    return {
-      email:`user_${String.fromCharCode(97+i)}${i+1}@vpn`,
-      uuid:`xxxxxxxx-${i}-4xxx-yxxx-xxxxxxxxxxxx`,
-      password:`pass${i+1}`,
-      inboundId:ib.id, inbound:ib,
-      enable:Math.random()>.2,
-      totalGB:(i%4+1)*10, expiryTime:i<2?now-86400e3:now+(i+1)*7*86400e3,
-      up:Math.floor(used*.3), down:Math.floor(used*.7),
-    };
-  });
-  renderDashboard(); renderUsersTable(); renderInboundsTable(); populateSelects();
-}
-
-// ══════════════════════════════════════
-// HELPERS
-// ══════════════════════════════════════
-function fb(b) {
-  if (!b || isNaN(b)) return '0 B';
-  const u=['B','KB','MB','GB','TB']; let i=0;
-  while (b>=1024&&i<4){b/=1024;i++;} return b.toFixed(2)+' '+u[i];
-}
-function fd(ms) {
-  if (!ms||ms===0) return '∞';
-  return new Date(ms).toLocaleDateString('fa-IR');
-}
-function uuid4() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
-    const r=Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16);
-  });
-}
-function randHex(n) { return [...Array(n)].map(()=>Math.floor(Math.random()*16).toString(16)).join(''); }
-function randPass(n=16) { return btoa(Math.random().toString(36)).slice(0,n).replace(/[^a-zA-Z0-9]/g,'').slice(0,n); }
-
-// ══════════════════════════════════════
-// RENDER — DASHBOARD
-// ══════════════════════════════════════
-function renderDashboard() {
-  const now = Date.now();
-  const total    = S.users.length;
-  const active   = S.users.filter(u=>u.enable&&(u.expiryTime===0||u.expiryTime>now)).length;
-  const expired  = S.users.filter(u=>u.expiryTime>0&&u.expiryTime<now).length;
-  const upTotal  = S.users.reduce((s,u)=>s+u.up,0);
-  const dnTotal  = S.users.reduce((s,u)=>s+u.down,0);
-  const activeIb = S.inbounds.filter(i=>i.enable).length;
-
-  setTxt('ds-users',   total);
-  setTxt('ds-active',  active);
-  setTxt('ds-expired', expired);
-  setTxt('ds-up',      fb(upTotal).split(' ')[0]);
-  setTxt('ds-down',    fb(dnTotal).split(' ')[0]);
-  setTxt('ds-ibs',     activeIb);
-  setTxt('nb-users',   total);
-  setTxt('nb-ibs',     S.inbounds.length);
-
-  const sorted = [...S.users].sort((a,b)=>(b.up+b.down)-(a.up+a.down)).slice(0,6);
-  document.getElementById('dash-top-users').innerHTML = sorted.length
-    ? sorted.map(u => userRowHtml(u, true)).join('')
-    : '<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--t2)">هیچ کاربری یافت نشد</td></tr>';
-}
-
-function userRowHtml(u, compact=false) {
-  const now  = Date.now();
-  const used = u.up + u.down;
-  const total= u.totalGB ? u.totalGB * 1073741824 : 0;
-  const pct  = total ? Math.min(100, Math.round(used/total*100)) : 0;
-  const exp  = u.expiryTime > 0 && u.expiryTime < now;
-  const proto= u.inbound?.protocol || '—';
-  const statusBadge = exp
-    ? `<span class="badge br">منقضی</span>`
-    : u.enable
-    ? `<span class="badge bg">فعال</span>`
-    : `<span class="badge bw">غیرفعال</span>`;
-  const actions = compact ? '' : `
-    <td>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button class="btn btn-magic btn-sm" onclick="openMagicConfigs('${u.email}')" title="ایجاد تمام کانفیگ‌ها">✨</button>
-        <button class="btn btn-ghost btn-sm"  onclick="toggleUser('${u.email}')">${u.enable?'⏹️':'▶️'}</button>
-        <button class="btn btn-ghost btn-sm"  onclick="resetTraffic('${u.email}')">🔄</button>
-        <button class="btn btn-red btn-sm"    onclick="deleteUser('${u.email}')">🗑️</button>
-      </div>
-    </td>`;
-  return `<tr>
-    <td style="font-weight:600;color:var(--t0)">${u.email}</td>
-    <td><span class="pc pc-${proto}">${proto.toUpperCase()}</span></td>
-    <td>
-      <div style="min-width:120px">
-        <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--t2);margin-bottom:3px">
-          <span>${fb(used)}</span><span>${pct}%</span>
-        </div>
-        <div class="progress"><div class="pf ${pct>80?'danger':''}" style="width:${pct}%"></div></div>
-      </div>
-    </td>
-    ${compact ? `<td>${total ? fb(total) : '∞'}</td>` : `<td>${total ? fb(total) : '<span style="color:var(--t2)">∞</span>'}</td>`}
-    <td style="font-size:.78rem">${fd(u.expiryTime)}</td>
-    <td>${statusBadge}</td>
-    ${actions}
-  </tr>`;
-}
-
-// ══════════════════════════════════════
-// RENDER — USERS TABLE
-// ══════════════════════════════════════
-let _usersFiltered = null;
-function renderUsersTable(list) {
-  const rows = (list || S.users);
-  document.getElementById('users-tbody').innerHTML = rows.length
-    ? rows.map(u => userRowHtml(u, false)).join('')
-    : '<tr><td colspan="7"><div class="empty"><div class="ei">👤</div><p>کاربری یافت نشد</p></div></td></tr>';
-}
-function filterUsers() {
-  const q = document.getElementById('user-search').value.toLowerCase();
-  renderUsersTable(S.users.filter(u => u.email.toLowerCase().includes(q)));
-}
-
-// ══════════════════════════════════════
-// RENDER — INBOUNDS TABLE
-// ══════════════════════════════════════
-function renderInboundsTable() {
-  document.getElementById('ibs-tbody').innerHTML = S.inbounds.length
-    ? S.inbounds.map(ib => `<tr>
-      <td class="mono">${ib.id}</td>
-      <td style="font-weight:600;color:var(--t0)">${ib.remark}</td>
-      <td><span class="pc pc-${ib.protocol}">${ib.protocol.toUpperCase()}</span></td>
-      <td class="mono" style="color:var(--y)">${ib.port}</td>
-      <td><span class="badge bw">${ib.network||'tcp'}</span></td>
-      <td><span class="badge ${ib.security==='reality'?'bc':ib.security==='tls'?'bg':'bw'}">${ib.security||'none'}</span></td>
-      <td style="color:var(--g)">${fb(ib.up)} / <span style="color:var(--r)">${fb(ib.down)}</span></td>
-      <td>${ib.enable?'<span class="badge bg">فعال</span>':'<span class="badge br">غیرفعال</span>'}</td>
-      <td>
-        <div style="display:flex;gap:5px">
-          <button class="btn btn-ghost btn-sm" onclick="toggleInbound(${ib.id})">${ib.enable?'⏹️':'▶️'}</button>
-          <button class="btn btn-red btn-sm"   onclick="deleteIb(${ib.id})">🗑️</button>
-        </div>
-      </td>
-    </tr>`).join('')
-    : '<tr><td colspan="9"><div class="empty"><div class="ei">📭</div><p>اینباندی یافت نشد</p></div></td></tr>';
-}
-
-// ══════════════════════════════════════
-// POPULATE SELECTS
-// ══════════════════════════════════════
-function populateSelects() {
-  const ibOpts = S.inbounds.map(ib=>`<option value="${ib.id}">${ib.remark} (${ib.protocol}:${ib.port})</option>`).join('');
-  setHtml('au-inbound', `<option value="">انتخاب اینباند...</option>${ibOpts}`);
-  const uOpts = S.users.map(u=>`<option value="${u.email}">${u.email} (${u.inbound?.protocol||'?'})</option>`).join('');
-  setHtml('cfg-user-sel', `<option value="">انتخاب کاربر...</option>${uOpts}`);
-  setHtml('sub-user-sel', `<option value="">انتخاب کاربر...</option>${uOpts}`);
-}
-
-// ══════════════════════════════════════
-// CONFIG GENERATION ENGINE
-// ══════════════════════════════════════
-function buildConfigs(user, connType, cfDomain) {
-  const ib   = user.inbound;
-  const host = CFG.serverHost;
-  let targetHost = host;
-  if (connType === 'cdn' && cfDomain)    targetHost = cfDomain;
-  else if (connType === 'cleanip')       targetHost = '104.16.0.0'; // default clean ip
-
-  const port   = ib.port;
-  const net    = ib.network || 'tcp';
-  const sec    = connType === 'cdn' ? 'tls' : (ib.security || 'none');
-  const sni    = cfDomain || host;
-  const path   = '/' + randHex(8);
-  const svcName= randHex(8);
-
-  const configs = [];
-
-  // Build ALL protocols regardless of inbound type
-  // VLESS
-  const vlessUuid = user.uuid || uuid4();
-  let vlessParams = `type=${net}&security=${sec}`;
-  if (net==='ws'||net==='xhttp') vlessParams += `&path=${encodeURIComponent(path)}&host=${sni}`;
-  if (net==='grpc')              vlessParams += `&serviceName=${svcName}`;
-  if (sec==='tls'||sec==='reality') vlessParams += `&sni=${sni}&fp=chrome`;
-  if (sec==='reality') vlessParams += `&pbk=INSERT_PUBLIC_KEY&sid=${randHex(8)}&flow=xtls-rprx-vision`;
-  if (sec==='tls')     vlessParams += `&alpn=h2%2Chttp%2F1.1`;
-  configs.push({ proto:'vless',  label:'VLESS',  link:`vless://${vlessUuid}@${targetHost}:${port}?${vlessParams}#${encodeURIComponent(user.email+'-vless')}` });
-
-  // VMess
-  const vmessObj = {
-    v:'2',ps:`${user.email}-vmess`,add:targetHost,port:port,id:vlessUuid,
-    aid:0,scy:'auto',net,type:'none',host:sni,
-    path: (net==='ws'||net==='xhttp') ? path : '/',
-    tls: sec==='tls'?'tls':'', sni, alpn:'', fp:'',
-  };
-  configs.push({ proto:'vmess', label:'VMess', link:`vmess://${btoa(JSON.stringify(vmessObj))}` });
-
-  // Trojan
-  const trojanPw = user.password || randPass(16);
-  let trojanParams = `security=${sec==='none'?'tls':sec}&type=${net}`;
-  trojanParams += `&sni=${sni}&peer=${sni}&alpn=h2%2Chttp%2F1.1`;
-  if (net==='ws') trojanParams += `&path=${encodeURIComponent(path)}`;
-  configs.push({ proto:'trojan', label:'Trojan', link:`trojan://${trojanPw}@${targetHost}:${port}?${trojanParams}#${encodeURIComponent(user.email+'-trojan')}` });
-
-  // Hysteria2
-  const hy2Pw = user.password || randPass(16);
-  configs.push({ proto:'hy2', label:'Hysteria2', link:`hysteria2://${hy2Pw}@${targetHost}:${port}?insecure=1&sni=${host}#${encodeURIComponent(user.email+'-hy2')}` });
-
-  // ShadowSocks
-  const ssPw   = user.password || randPass(16);
-  const ssInfo = btoa(`chacha20-ietf-poly1305:${ssPw}`);
-  configs.push({ proto:'ss', label:'ShadowSocks', link:`ss://${ssInfo}@${targetHost}:${port}#${encodeURIComponent(user.email+'-ss')}` });
-
-  return configs;
-}
-
-// ══════════════════════════════════════
-// MAGIC BUTTON — OPEN ALL CONFIGS MODAL
-// ══════════════════════════════════════
-window._currentAllConfigs = [];
-
-function openMagicConfigs(email) {
-  const user = S.users.find(u => u.email === email);
-  if (!user) { toast('کاربر یافت نشد', 'e'); return; }
-  const connType = 'direct';
-  const configs  = buildConfigs(user, connType, '');
-  window._currentAllConfigs = configs;
-
-  const subUrl = buildSubUrl(email);
-
-  let html = `
-    <div class="subbox" style="margin-bottom:16px">
-      <div class="subbox-title">🔗 لینک ساب‌اسکریپشن</div>
-      <div class="subbox-url">${subUrl}</div>
-      <button class="btn btn-cyan btn-sm" style="margin-top:10px" onclick="navigator.clipboard.writeText('${subUrl}').then(()=>toast('لینک ساب کپی شد','s'))">📋 کپی ساب</button>
-    </div>
-    <div style="margin-bottom:12px;font-size:.82rem;font-weight:700;color:var(--t1)">تمام پروتکل‌ها — ${configs.length} کانفیگ:</div>
-  `;
-
-  configs.forEach((c, i) => {
-    html += `
-      <div style="margin-bottom:14px">
-        <div class="cfgbox-lbl">${c.label}</div>
-        <div class="cfgbox" style="position:relative">
-          ${escHtml(c.link)}
-          <button class="copy-btn" onclick="copyText('${escAttr(c.link)}','${c.label} کپی شد')">📋 کپی</button>
-        </div>
-      </div>
-    `;
-  });
-
-  document.getElementById('mac-title').textContent = `✨ کانفیگ‌های ${email}`;
-  document.getElementById('mac-body').innerHTML = html;
-  openModal('modal-all-configs');
-}
-
-function copyAllLinks() {
-  const text = window._currentAllConfigs.map(c => c.link).join('\n');
-  navigator.clipboard.writeText(text)
-    .then(() => toast(`${window._currentAllConfigs.length} لینک کپی شد ✓`, 's'))
-    .catch(() => toast('خطا در کپی', 'e'));
-}
-
-// ══════════════════════════════════════
-// GENERATE ALL CONFIGS (Config Page)
-// ══════════════════════════════════════
-function onCfgUserChange() {
-  // auto-show cdn domain field if needed
-}
-function onConnTypeChange() {
-  const v = document.getElementById('cfg-conn').value;
-  document.getElementById('cfg-cf-domain-wrap').style.display = v === 'cdn' ? 'block' : 'none';
-}
-
-function generateAllConfigs() {
-  const email    = document.getElementById('cfg-user-sel').value;
-  const connType = document.getElementById('cfg-conn').value;
-  const cfDomain = document.getElementById('cfg-cf-domain').value.trim();
-
-  if (!email) { toast('ابتدا یک کاربر انتخاب کنید', 'w'); return; }
-  if (connType === 'cdn' && !cfDomain) { toast('دامنه CDN را وارد کنید', 'w'); return; }
-
-  const user = S.users.find(u => u.email === email);
-  if (!user) { toast('کاربر یافت نشد', 'e'); return; }
-
-  const configs = buildConfigs(user, connType, cfDomain);
-  window._currentAllConfigs = configs;
-  const subUrl = buildSubUrl(email);
-
-  let html = `
-    <div class="card" style="margin-bottom:0">
-      <div class="card-hd">
-        <span class="card-title">✨ ${configs.length} کانفیگ برای ${email}</span>
-        <button class="btn btn-magic btn-sm" onclick="copyAllLinks()">📋 کپی همه لینک‌ها</button>
-      </div>
-      <div class="card-body">
-        <div class="subbox" style="margin-bottom:16px">
-          <div class="subbox-title">🔗 لینک ساب‌اسکریپشن</div>
-          <div class="subbox-url">${subUrl}</div>
-          <button class="btn btn-cyan btn-sm" style="margin-top:10px"
-            onclick="navigator.clipboard.writeText('${subUrl}').then(()=>toast('لینک ساب کپی شد','s'))">
-            📋 کپی ساب
-          </button>
-        </div>
-  `;
-
-  configs.forEach(c => {
-    html += `
-      <div style="margin-bottom:14px">
-        <div class="cfgbox-lbl">${c.label}</div>
-        <div class="cfgbox" style="position:relative">
-          ${escHtml(c.link)}
-          <button class="copy-btn" onclick="copyText('${escAttr(c.link)}','${c.label} کپی شد')">📋 کپی</button>
-        </div>
-      </div>
-    `;
-  });
-
-  html += `</div></div>`;
-  document.getElementById('cfg-output-area').innerHTML = html;
-  toast(`${configs.length} کانفیگ تولید شد ✓`, 's');
-}
-
-// ══════════════════════════════════════
-// SUBSCRIPTION
-// ══════════════════════════════════════
-function buildSubUrl(email) {
-  const safe = email.replace(/[^a-zA-Z0-9._-]/g, '');
-  return `http://${CFG.serverHost}:${CFG.panelPort}/sub/${safe}`;
-}
-
-function generateSubLink() {
-  const email = document.getElementById('sub-user-sel').value;
-  if (!email) { toast('یک کاربر انتخاب کنید', 'w'); return; }
-
-  const user    = S.users.find(u => u.email === email);
-  if (!user) { toast('کاربر یافت نشد', 'e'); return; }
-
-  const subUrl  = buildSubUrl(email);
-  const configs = buildConfigs(user, 'direct', '');
-  window._currentSubUrl = subUrl;
-
-  document.getElementById('sub-url-display').textContent = subUrl;
-  document.getElementById('sub-result').style.display = 'block';
-
-  let cfgHtml = `<div style="font-weight:700;font-size:.82rem;color:var(--t1);margin-bottom:10px">کانفیگ‌های این کاربر:</div>`;
-  configs.forEach(c => {
-    cfgHtml += `
-      <div style="margin-bottom:10px">
-        <div class="cfgbox-lbl">${c.label}</div>
-        <div class="cfgbox" style="position:relative">
-          ${escHtml(c.link)}
-          <button class="copy-btn" onclick="copyText('${escAttr(c.link)}','کپی شد')">📋</button>
-        </div>
-      </div>
-    `;
-  });
-  document.getElementById('sub-configs-list').innerHTML = cfgHtml;
-  toast('لینک ساب تولید شد', 's');
-}
-
-function copySubLink() {
-  const url = document.getElementById('sub-url-display').textContent;
-  navigator.clipboard.writeText(url).then(() => toast('لینک ساب کپی شد ✓', 's'));
-}
-
-let _subQrShown = false;
-function toggleSubQR() {
-  _subQrShown = !_subQrShown;
-  document.getElementById('sub-qr-area').style.display = _subQrShown ? 'block' : 'none';
-  if (_subQrShown) drawQR('sub-qr-canvas', document.getElementById('sub-url-display').textContent);
-}
-
-// ══════════════════════════════════════
-// ADD USER via API
-// ══════════════════════════════════════
-async function addUser() {
-  const inboundId = parseInt(document.getElementById('au-inbound').value);
-  const email     = document.getElementById('au-email').value.trim().replace(/\s+/g,'_');
-  const trafficGB = parseInt(document.getElementById('au-traffic').value) || 0;
-  const days      = parseInt(document.getElementById('au-days').value) || 0;
-  const ipLimit   = parseInt(document.getElementById('au-iplimit').value) || 0;
-
-  if (!inboundId || !email) { toast('اینباند و نام کاربری الزامی است', 'e'); return; }
-
-  const expiryTime = days ? (Date.now() + days * 86400000) : 0;
-  const newUuid    = uuid4();
-  const ib         = S.inbounds.find(x => x.id === inboundId);
-  if (!ib) { toast('اینباند نامعتبر', 'e'); return; }
-
-  // Build client object based on protocol
-  let clientObj;
-  if (ib.protocol === 'vless' || ib.protocol === 'vmess') {
-    clientObj = { id: newUuid, flow: '', email, limitIp: ipLimit,
-      totalGB: trafficGB, expiryTime, enable: true, tgId: '', subId: '', reset: 0 };
-  } else {
-    clientObj = { password: randPass(16), email, limitIp: ipLimit,
-      totalGB: trafficGB, expiryTime, enable: true, tgId: '', subId: '', reset: 0 };
-    if (ib.protocol === 'vmess') clientObj.alterId = 0;
-  }
-
-  const payload = { id: inboundId, settings: JSON.stringify({ clients: [clientObj] }) };
-
-  if (S.loggedIn) {
-    const r = await api(`/xui/API/inbounds/addClient`, 'POST', payload);
-    if (r?.success) {
-      toast(`کاربر '${email}' ایجاد شد ✓`, 's');
-      closeModal('modal-add-user');
-      await loadInbounds();
-      // Auto-open magic configs after creation
-      setTimeout(() => openMagicConfigs(email), 500);
-      return;
-    }
-    toast('خطا در API — ذخیره محلی', 'w');
-  }
-
-  // Fallback: add to local state
-  S.users.push({
-    email, uuid: newUuid, password: randPass(16),
-    inboundId, inbound: ib, enable: true,
-    totalGB: trafficGB, expiryTime, up: 0, down: 0,
-  });
-  renderUsersTable(); renderDashboard(); populateSelects();
-  closeModal('modal-add-user');
-  toast(`کاربر '${email}' ایجاد شد ✓`, 's');
-  setTimeout(() => openMagicConfigs(email), 400);
-}
-
-// ══════════════════════════════════════
-// ADD INBOUND via API
-// ══════════════════════════════════════
-async function addInbound() {
-  const protocol = document.getElementById('ib-proto').value;
-  const port     = parseInt(document.getElementById('ib-port').value);
-  const remark   = document.getElementById('ib-remark').value || `${protocol}-${port}`;
-  const network  = document.getElementById('ib-network').value;
-  const security = document.getElementById('ib-security').value;
-
-  if (!port || port < 1 || port > 65535) { toast('پورت نامعتبر', 'e'); return; }
-
-  let settings, streamSettings;
-  const initUuid = uuid4();
-
-  if (protocol === 'vless') {
-    settings = JSON.stringify({ clients:[{id:initUuid,flow:'',email:'default',limitIp:0,totalGB:0,expiryTime:0,enable:true,tgId:'',subId:'',reset:0}], decryption:'none', fallbacks:[] });
-  } else if (protocol === 'vmess') {
-    settings = JSON.stringify({ clients:[{id:initUuid,alterId:0,email:'default',limitIp:0,totalGB:0,expiryTime:0,enable:true,tgId:'',subId:'',reset:0}] });
-  } else if (protocol === 'trojan') {
-    settings = JSON.stringify({ clients:[{password:randPass(16),email:'default',limitIp:0,totalGB:0,expiryTime:0,enable:true,tgId:'',subId:'',reset:0}], fallbacks:[] });
-  } else if (protocol === 'shadowsocks') {
-    settings = JSON.stringify({ method:'chacha20-ietf-poly1305', password:randPass(16), clients:[{password:randPass(16),email:'default',limitIp:0,totalGB:0,expiryTime:0,enable:true,tgId:'',subId:'',reset:0}], network:'tcp,udp' });
-  } else if (protocol === 'hysteria2') {
-    settings = JSON.stringify({ clients:[{password:randPass(16),email:'default',limitIp:0,totalGB:0,expiryTime:0,enable:true,tgId:'',subId:'',reset:0}], masquerade:'', salamander:{password:''} });
-  }
-
-  const netKey = { ws:'wsSettings', grpc:'grpcSettings', xhttp:'xhttpSettings', h2:'httpSettings', quic:'quicSettings', tcp:'tcpSettings' }[network] || 'tcpSettings';
-  const netVal = network==='ws' ? {path:'/'+randHex(8),headers:{Host:''}} : network==='grpc' ? {serviceName:randHex(8)} : network==='xhttp' ? {path:'/'+randHex(8),host:'',method:'POST'} : {header:{type:'none'}};
-  streamSettings = JSON.stringify({ network, security, [netKey]: netVal,
-    tlsSettings: security==='tls' ? {serverName:'',certificates:[],alpn:['h2','http/1.1']} : null,
-    realitySettings: security==='reality' ? {show:false,dest:'www.microsoft.com:443',serverNames:['www.microsoft.com'],privateKey:'',shortIds:[randHex(8)]} : null,
-  });
-
-  const ibData = {
-    remark, protocol, port, settings, streamSettings,
-    listen:'', enable:true, expiryTime:0, total:0,
-    sniffing: JSON.stringify({enabled:true,destOverride:['http','tls','quic'],metadataOnly:false}),
-    tag: `inbound-${port}`,
-  };
-
-  if (S.loggedIn) {
-    const r = await api('/xui/API/inbounds/add', 'POST', ibData);
-    if (r?.success) {
-      toast(`اینباند '${remark}' ایجاد شد ✓`, 's');
-      closeModal('modal-add-inbound'); await loadInbounds(); return;
-    }
-    toast('خطا در API — ذخیره محلی', 'w');
-  }
-
-  S.inbounds.push({ id: Date.now(), remark, protocol, port, enable:true, up:0, down:0, total:0, expiryTime:0, network, security });
-  renderInboundsTable(); renderDashboard(); populateSelects();
-  closeModal('modal-add-inbound');
-  toast(`اینباند '${remark}' ایجاد شد ✓`, 's');
-}
-
-// ══════════════════════════════════════
-// USER ACTIONS
-// ══════════════════════════════════════
-async function toggleUser(email) {
-  const u = S.users.find(x=>x.email===email);
-  if (!u) return;
-  u.enable = !u.enable;
-  if (S.loggedIn) {
-    await api(`/xui/API/inbounds/${u.inboundId}/clientIps/${email}`, 'POST', {});
-  }
-  renderUsersTable(); renderDashboard();
-  toast(`کاربر ${u.enable?'فعال':'غیرفعال'} شد`, 's');
-}
-
-async function resetTraffic(email) {
-  const u = S.users.find(x=>x.email===email);
-  if (!u) return;
-  if (S.loggedIn) {
-    await api(`/xui/API/inbounds/resetClientTraffic/${u.inboundId}/${email}`, 'POST', {});
-  }
-  u.up = 0; u.down = 0;
-  renderUsersTable(); renderDashboard();
-  toast('ترافیک ریست شد ✓', 's');
-}
-
-async function deleteUser(email) {
-  if (!confirm(`کاربر '${email}' حذف شود؟`)) return;
-  const u = S.users.find(x=>x.email===email);
-  if (u && S.loggedIn) {
-    await api(`/xui/API/inbounds/${u.inboundId}/delClient/${u.uuid||email}`, 'POST', {});
-  }
-  S.users = S.users.filter(x=>x.email!==email);
-  renderUsersTable(); renderDashboard(); populateSelects();
-  toast('کاربر حذف شد', 's');
-}
-
-async function toggleInbound(id) {
-  const ib = S.inbounds.find(x=>x.id===id);
-  if (!ib) return;
-  ib.enable = !ib.enable;
-  if (S.loggedIn) {
-    await api(`/xui/API/inbounds/update/${id}`, 'POST', { enable: ib.enable });
-  }
-  renderInboundsTable(); renderDashboard();
-  toast(`اینباند ${ib.enable?'فعال':'غیرفعال'} شد`, 's');
-}
-
-async function deleteIb(id) {
-  if (!confirm('اینباند حذف شود؟')) return;
-  if (S.loggedIn) await api(`/xui/API/inbounds/del/${id}`, 'POST', {});
-  S.inbounds = S.inbounds.filter(x=>x.id!==id);
-  S.users = S.users.filter(x=>x.inboundId!==id);
-  renderInboundsTable(); renderUsersTable(); renderDashboard(); populateSelects();
-  toast('اینباند حذف شد', 's');
-}
-
-// ══════════════════════════════════════
-// UI HELPERS
-// ══════════════════════════════════════
-function showPage(id, btn) {
-  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById(`pg-${id}`)?.classList.add('active');
-  if (btn) btn.classList.add('active');
-  const titles = { dashboard:'داشبورد اصلی', users:'مدیریت کاربران',
-    inbounds:'مدیریت اینباندها', configs:'تولید کانفیگ', subscription:'ساب‌اسکریپشن' };
-  document.getElementById('topbar-title').textContent = titles[id] || id;
-}
-
-function openModal(id)  { document.getElementById(id)?.classList.add('open');  document.body.style.overflow='hidden'; }
-function closeModal(id) { document.getElementById(id)?.classList.remove('open'); document.body.style.overflow=''; }
-document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)closeModal(el.id);}));
-
-function openAddUser()    { openModal('modal-add-user'); }
-function openAddInbound() { openModal('modal-add-inbound'); document.getElementById('ib-port').value=Math.floor(Math.random()*50000+10000); }
-
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-
-function toast(msg, type='i') {
-  const c = document.getElementById('toasts');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  const icons = {s:'✅',e:'❌',i:'ℹ️',w:'⚠️'};
-  t.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`;
-  c.appendChild(t);
-  setTimeout(()=>{ t.classList.add('toast-out'); setTimeout(()=>t.remove(),280); }, 3500);
-}
-
-function setTxt(id, val)  { const e=document.getElementById(id); if(e) e.textContent=val; }
-function setHtml(id, val) { const e=document.getElementById(id); if(e) e.innerHTML=val; }
-
-function copyText(text, msg='کپی شد') {
-  navigator.clipboard.writeText(text).then(()=>toast(msg,'s')).catch(()=>toast('خطا در کپی','e'));
-}
-
-function escHtml(s)  { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escAttr(s)  { return s.replace(/'/g,"\\'").replace(/"/g,'\\"'); }
-
-// Simple QR placeholder
-function drawQR(id, text) {
-  const c = document.getElementById(id); if(!c) return;
-  const ctx=c.getContext('2d'); const sz=160; c.width=sz; c.height=sz;
-  ctx.fillStyle='#07090d'; ctx.fillRect(0,0,sz,sz);
-  ctx.fillStyle='#00e5ff'; ctx.font='bold 11px monospace'; ctx.textAlign='center';
-  ctx.fillText('QR Code',sz/2,sz/2-8);
-  ctx.fillStyle='#3d5a78'; ctx.font='9px monospace';
-  ctx.fillText('(qrencode در سرور)',sz/2,sz/2+10);
-}
-</script>
-</body>
-</html>
-HTMLEOF
-
-ok "داشبورد وب تولید شد"
-
-# ══════════════════════════════════════════════════════════════════
-# SECTION 5 — NGINX CONFIG (reverse proxy for X-UI API + serve web panel)
-# ══════════════════════════════════════════════════════════════════
-step 7 "پیکربندی Nginx..."
-
-# Remove default nginx site
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-
-cat > /etc/nginx/sites-available/masterpanel << NGINXEOF
-# Master Panel — Nginx Config
-# Auto-generated — DO NOT EDIT MANUALLY
-
-server {
-    listen ${PANEL_PORT};
-    server_name ${SERVER_HOST} _;
-    root ${WEB_DIR};
-    index index.html;
-
-    # ── Gzip ──
-    gzip on;
-    gzip_types text/plain text/css application/javascript application/json;
-    gzip_min_length 1024;
-
-    # ── Static files ──
-    location / {
-        try_files \$uri \$uri/ /index.html;
-        add_header Cache-Control "no-cache";
+install_tuic() {
+    log_step "Installing TUIC v5..."
+    ARCH=$(uname -m)
+    [[ "$ARCH" == "aarch64" ]] && TA="aarch64-unknown-linux-gnu" || TA="x86_64-unknown-linux-gnu"
+    VER=$(curl -s https://api.github.com/repos/EAimTY/tuic/releases/latest \
+        | jq -r '.tag_name' 2>/dev/null || echo "tuic-server-1.0.0")
+    if wget -q \
+        "https://github.com/EAimTY/tuic/releases/download/${VER}/tuic-server-${TA}" \
+        -O /tmp/tuic-server 2>/dev/null; then
+        mv /tmp/tuic-server /usr/local/bin/tuic-server
+        chmod +x /usr/local/bin/tuic-server
+        log_info "TUIC v5 installed."
+    else
+        log_warn "TUIC download failed — TUIC configs will be skipped."
+        touch /tmp/tuic_failed
+    fi
+}
+
+install_hysteria2() {
+    log_step "Installing Hysteria2..."
+    if curl -fsSL https://get.hy2.sh/ | bash 2>&1 | tail -3; then
+        command -v hysteria &>/dev/null && \
+            log_info "Hysteria2: $(hysteria version 2>/dev/null | head -1)" || \
+            _install_hy2_direct
+    else
+        log_warn "Hysteria2 installer unreachable — trying direct download..."
+        _install_hy2_direct
+    fi
+}
+
+_install_hy2_direct() {
+    ARCH=$(uname -m)
+    [[ "$ARCH" == "aarch64" ]] && HY2A="arm64" || HY2A="amd64"
+    HY2V=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest \
+        | jq -r '.tag_name' 2>/dev/null | sed 's/app\///' || echo "v2.6.1")
+    wget -q \
+        "https://github.com/apernet/hysteria/releases/download/app%2F${HY2V}/hysteria-linux-${HY2A}" \
+        -O /usr/local/bin/hysteria 2>/dev/null && chmod +x /usr/local/bin/hysteria \
+        || { log_warn "Hysteria2 fallback failed."; touch /tmp/hy2_failed; }
+}
+
+obtain_ssl() {
+    log_step "Obtaining SSL certificate for $DOMAIN..."
+    systemctl stop masterpanel 2>/dev/null || true
+    fuser -k 80/tcp 2>/dev/null || true
+    sleep 1
+    certbot certonly --standalone \
+        --non-interactive --agree-tos \
+        --register-unsafely-without-email \
+        -d "$DOMAIN" --preferred-challenges http 2>&1 | tail -5
+    CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+    if [[ ! -f "$CERT_PATH" ]]; then
+        log_error "SSL certificate not obtained. Verify DNS A record and port 80."
+        exit 1
+    fi
+    chmod 644 "$CERT_PATH" "$KEY_PATH"
+    log_info "SSL certificate obtained."
+}
+
+setup_panel() {
+    log_step "Setting up MasterPanel v3.0..."
+    mkdir -p "$PANEL_DIR"/{templates,static,configs,logs}
+    python3 -m venv "$PANEL_DIR/venv"
+    "$PANEL_DIR/venv/bin/pip" install -q --upgrade pip
+    "$PANEL_DIR/venv/bin/pip" install -q flask requests apscheduler
+    log_info "Python deps: flask + requests + apscheduler ✓"
+
+    cat > "$PANEL_DIR/panel.conf" << PANELCONF
+DOMAIN=$DOMAIN
+PANEL_USER=$PANEL_USER
+PANEL_PASS=$PANEL_PASS
+PANEL_PORT=$PANEL_PORT
+CERT_PATH=/etc/letsencrypt/live/$DOMAIN/fullchain.pem
+KEY_PATH=/etc/letsencrypt/live/$DOMAIN/privkey.pem
+XRAY_CONFIG_DIR=$XRAY_CONFIG_DIR
+XRAY_BIN=$XRAY_DIR/xray
+TUIC_BIN=/usr/local/bin/tuic-server
+HY2_BIN=/usr/local/bin/hysteria
+PANELCONF
+    log_info "Panel configured."
+}
+
+copy_panel_files() {
+    log_step "Installing panel application files..."
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # GitHub source — used as fallback if files not found locally
+    GH_REPO="Masterv2panel/Masterpanel"
+    GH_BRANCH="main"
+    GH_RAW="https://raw.githubusercontent.com/${GH_REPO}/${GH_BRANCH}"
+
+    _install_file() {
+        local SRC_NAME="$1"   # filename in repo root
+        local DST_PATH="$2"   # absolute destination path
+
+        if [[ -f "$SCRIPT_DIR/$SRC_NAME" ]]; then
+            cp "$SCRIPT_DIR/$SRC_NAME" "$DST_PATH"
+            log_info "Installed (local): $SRC_NAME"
+        else
+            log_warn "$SRC_NAME not found locally — downloading from GitHub..."
+            if wget -q "$GH_RAW/$SRC_NAME" -O "$DST_PATH" 2>/dev/null; then
+                log_info "Downloaded from GitHub: $SRC_NAME"
+            else
+                log_error "Cannot obtain $SRC_NAME. Check internet or add file locally."
+                exit 1
+            fi
+        fi
     }
 
-    # ── config.js (pre-injected by installer) ──
-    location = /config.js {
-        add_header Cache-Control "no-store";
-    }
+    mkdir -p "$PANEL_DIR/templates"
 
-    # ── Subscription endpoint ──
-    location /sub/ {
-        alias /var/www/xui-subs/;
-        add_header Content-Type "text/plain; charset=utf-8";
-        add_header Profile-Update-Interval "12";
-        add_header Subscription-Userinfo "upload=0; download=0; total=0; expire=0";
-    }
+    _install_file "masterpanel.py" "$PANEL_DIR/masterpanel.py"
+    _install_file "index.html"     "$PANEL_DIR/templates/index.html"
+    _install_file "mp.sh"          "$PANEL_DIR/mp.sh"
 
-    # ── X-UI API Proxy ──
-    location /api/ {
-        proxy_pass http://127.0.0.1:${XUI_PORT}/;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-        proxy_buffering off;
-
-        # CORS headers
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With" always;
-        add_header Access-Control-Allow-Credentials "true" always;
-
-        if (\$request_method = OPTIONS) {
-            add_header Access-Control-Allow-Origin "*";
-            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
-            add_header Access-Control-Allow-Headers "Content-Type, Authorization";
-            add_header Content-Length 0;
-            return 204;
-        }
-    }
-
-    # ── X-UI WebSocket passthrough ──
-    location /xui/ {
-        proxy_pass http://127.0.0.1:${XUI_PORT}/xui/;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-    }
-
-    # ── Login endpoint proxy ──
-    location = /login {
-        proxy_pass http://127.0.0.1:${XUI_PORT}/login;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header Content-Type "application/x-www-form-urlencoded";
-        proxy_set_header X-Real-IP \$remote_addr;
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Credentials "true" always;
-    }
-
-    # ── Security headers ──
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
-    add_header Referrer-Policy "strict-origin-when-cross-origin";
+    chmod +x "$PANEL_DIR/mp.sh"
 }
-NGINXEOF
-
-# Symlink and test
-ln -sf /etc/nginx/sites-available/masterpanel /etc/nginx/sites-enabled/masterpanel
-mkdir -p /var/www/xui-subs
-
-nginx -t >/dev/null 2>&1 \
-    && systemctl restart nginx >/dev/null 2>&1 \
-    && ok "Nginx پیکربندی و راه‌اندازی شد" \
-    || { echo -e "  ${RED}✗ خطا در Nginx${R}"; nginx -t; exit 1; }
 
 # ══════════════════════════════════════════════════════════════════
-# SECTION 6 — SUBSCRIPTION SERVER SCRIPT
+#  inject_routing_rules
+#
+#  Patches write_xray_config() in masterpanel.py to add:
+#
+#  1. Ad-Block (outboundTag "blocked" → blackhole):
+#     • geosite:youtube-ads        — YouTube ad domains
+#     • geosite:category-ads-all   — General ads & trackers
+#     • exoclick.com / juicyads.com / trafficjunky.com/.net
+#
+#  2. Iran Bypass (outboundTag "direct"):
+#     • geosite:ir                 — Registered Iranian sites
+#     • regexp:^.*\.ir$            — Any .ir subdomain/domain
+#     • geoip:ir                   — Iranian IP address ranges
+#
+#  domainStrategy "IPIfNonMatch" enables hybrid domain+IP matching
+#  for maximum routing accuracy with minimal latency overhead.
 # ══════════════════════════════════════════════════════════════════
-cat > /usr/local/bin/xui-sub-gen.sh << SUBEOF
-#!/usr/bin/env bash
-# Auto-generate subscription files for all X-UI users
-XUI_DB="/etc/x-ui/x-ui.db"
-SUB_DIR="/var/www/xui-subs"
-SERVER="${SERVER_HOST}"
-mkdir -p "\$SUB_DIR"
-if [[ ! -f "\$XUI_DB" ]]; then exit 0; fi
-emails=\$(sqlite3 "\$XUI_DB" "SELECT DISTINCT email FROM client_traffics WHERE enable=1;" 2>/dev/null || echo "")
-while IFS= read -r email; do
-    [[ -z "\$email" ]] && continue
-    safe=\$(echo "\$email" | tr -cd '[:alnum:]._-')
-    # Generate base64 content per user — real implementation queries inbounds
-    echo "# Subscription for \${email}" | base64 -w0 > "\${SUB_DIR}/\${safe}.txt"
-done <<< "\$emails"
-SUBEOF
-chmod +x /usr/local/bin/xui-sub-gen.sh
-/usr/local/bin/xui-sub-gen.sh 2>/dev/null || true
+inject_routing_rules() {
+    log_step "Injecting advanced routing rules..."
 
-# Auto-regenerate subs every 15 minutes
-(crontab -l 2>/dev/null | grep -v xui-sub-gen; echo "*/15 * * * * /usr/local/bin/xui-sub-gen.sh") | crontab - 2>/dev/null || true
+    local MPY="$PANEL_DIR/masterpanel.py"
 
-# ══════════════════════════════════════════════════════════════════
-# SECTION 7 — FIREWALL (if ufw is active)
-# ══════════════════════════════════════════════════════════════════
-if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-    ufw allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
-    ufw allow "${XUI_PORT}/tcp"   >/dev/null 2>&1 || true
-    ok "فایروال: پورت‌های ${PANEL_PORT} و ${XUI_PORT} باز شدند"
-fi
+    # Idempotent check
+    if grep -q "geosite:ir\|geoip:ir\|youtube-ads" "$MPY" 2>/dev/null; then
+        log_info "Advanced routing rules already present — skipping."
+        return 0
+    fi
 
-# ══════════════════════════════════════════════════════════════════
-# SECTION 8 — VERIFY SERVICES
-# ══════════════════════════════════════════════════════════════════
-sleep 2
-XUI_STATUS=$(systemctl is-active x-ui 2>/dev/null || echo "unknown")
-NGX_STATUS=$(systemctl is-active nginx 2>/dev/null || echo "unknown")
+    # Write patcher to a temp file (avoids heredoc nesting conflicts)
+    local PATCHER="/tmp/_mp_routing_patcher_$$.py"
+    cat > "$PATCHER" << 'PATCHEREOF'
+import sys
 
-# ══════════════════════════════════════════════════════════════════
-# SECTION 9 — SUCCESS BANNER
-# ══════════════════════════════════════════════════════════════════
-echo ""
-echo -e "${GREEN}${B}"
-echo "  ╔════════════════════════════════════════════════════════╗"
-echo "  ║           ✅  نصب با موفقیت انجام شد!                  ║"
-echo "  ╚════════════════════════════════════════════════════════╝"
-echo -e "${R}"
-echo -e "  ${CYAN}${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
-echo ""
-echo -e "  ${B}🌐  داشبورد مدیریت (Master Panel Web):${R}"
-echo -e "  ${CYAN}${B}  http://${SERVER_HOST}:${PANEL_PORT}${R}"
-echo ""
-echo -e "  ${B}🔧  پنل اصلی X-UI (Sanaei):${R}"
-echo -e "  ${YELLOW}  http://${SERVER_HOST}:${XUI_PORT}${R}"
-echo ""
-echo -e "  ${CYAN}${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
-echo ""
-echo -e "  ${B}👤  نام کاربری:${R}  ${GREEN}${PANEL_USER}${R}"
-echo -e "  ${B}🔑  رمز عبور:${R}   ${GREEN}${PANEL_PASS}${R}"
-echo ""
-echo -e "  ${CYAN}${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
-echo ""
-echo -e "  ${B}سرویس‌ها:${R}"
-if [[ "$XUI_STATUS" == "active" ]]; then
-    echo -e "  ${GREEN}●${R}  X-UI    ${GREEN}active${R}"
-else
-    echo -e "  ${RED}●${R}  X-UI    ${RED}${XUI_STATUS}${R}"
-fi
-if [[ "$NGX_STATUS" == "active" ]]; then
-    echo -e "  ${GREEN}●${R}  Nginx   ${GREEN}active${R}"
-else
-    echo -e "  ${RED}●${R}  Nginx   ${RED}${NGX_STATUS}${R}"
-fi
-echo ""
-echo -e "  ${DIM}📂  فایل‌های وب: ${WEB_DIR}${R}"
-echo -e "  ${DIM}📂  تنظیمات Nginx: /etc/nginx/sites-available/masterpanel${R}"
-echo -e "  ${DIM}📂  ساب‌اسکریپشن: /var/www/xui-subs/${R}"
-echo ""
-echo -e "  ${YELLOW}⚠  اگر داشبورد بارنشد — مطمئن شوید پورت ${PANEL_PORT} در فایروال باز است${R}"
-echo ""
-echo -e "  ${MAGENTA}${B}🔗 لینک مستقیم: http://${SERVER_HOST}:${PANEL_PORT}${R}"
-echo ""
-echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}"
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as fh:
+        src = fh.read()
+except Exception as exc:
+    print(f"[WARN] Cannot read {path}: {exc}")
+    sys.exit(0)
 
-# Save credentials to a secure file
-mkdir -p /etc/masterpanel
-cat > /etc/masterpanel/credentials.txt << CREDEOF
-Master Panel Credentials — $(date '+%Y-%m-%d %H:%M:%S')
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Dashboard URL : http://${SERVER_HOST}:${PANEL_PORT}
-X-UI URL      : http://${SERVER_HOST}:${XUI_PORT}
-Username      : ${PANEL_USER}
-Password      : ${PANEL_PASS}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CREDEOF
-chmod 600 /etc/masterpanel/credentials.txt
-echo -e "  ${DIM}💾 اطلاعات ذخیره شدند: /etc/masterpanel/credentials.txt${R}"
-echo ""
+# Exact string that exists in write_xray_config() routing section
+OLD = (
+    '        "routing": {\n'
+    '            "rules": [\n'
+    '                {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},\n'
+    '                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},\n'
+    '                {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "blocked"},\n'
+    '            ]\n'
+    '        },'
+)
+
+NEW = (
+    '        "routing": {\n'
+    '            "domainStrategy": "IPIfNonMatch",\n'
+    '            "rules": [\n'
+    '                # ── Internal API — must be first ─────────────────────────\n'
+    '                {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},\n'
+    '                # ── Block private / LAN IPs ───────────────────────────────\n'
+    '                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},\n'
+    '                # ── Ad-Block: YouTube ad domains ──────────────────────────\n'
+    '                {"type": "field", "domain": ["geosite:youtube-ads"], "outboundTag": "blocked"},\n'
+    '                # ── Ad-Block: general ad & tracker category ───────────────\n'
+    '                {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "blocked"},\n'
+    '                # ── Ad-Block: adult ad networks ───────────────────────────\n'
+    '                {"type": "field", "domain": [\n'
+    '                    "domain:exoclick.com",\n'
+    '                    "domain:juicyads.com",\n'
+    '                    "domain:trafficjunky.com",\n'
+    '                    "domain:trafficjunky.net",\n'
+    '                ], "outboundTag": "blocked"},\n'
+    '                # ── Iran Bypass: .ir TLD + domestic sites ─────────────────\n'
+    '                {"type": "field", "domain": [\n'
+    '                    "geosite:ir",\n'
+    '                    "regexp:^.*\\\\.ir$",\n'
+    '                ], "outboundTag": "direct"},\n'
+    '                # ── Iran Bypass: Iranian IP ranges ────────────────────────\n'
+    '                {"type": "field", "ip": ["geoip:ir"], "outboundTag": "direct"},\n'
+    '            ]\n'
+    '        },'
+)
+
+if OLD in src:
+    with open(path + '.pre_routing.bak', 'w', encoding='utf-8') as bk:
+        bk.write(src)
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(src.replace(OLD, NEW, 1))
+    print("[OK] Advanced routing rules injected successfully.")
+    print("     Ad-Block  : youtube-ads | category-ads-all | adult networks")
+    print("     Iran Bypass: geosite:ir + regexp:.ir + geoip:ir  → direct")
+    print("     Strategy  : IPIfNonMatch (hybrid domain+IP resolution)")
+else:
+    print("[WARN] Could not find routing target in masterpanel.py")
+    print("       Locate write_xray_config() and update routing rules manually.")
+    sys.exit(1)
+PATCHEREOF
+
+    "$PANEL_DIR/venv/bin/python3" "$PATCHER" "$MPY"
+    local RC=$?
+    rm -f "$PATCHER"
+
+    if [[ $RC -eq 0 ]]; then
+        log_info "Routing injection complete ✓"
+    else
+        log_warn "Routing injection had issues — see output above."
+    fi
+}
+
+# ── Weekly geo database auto-update cron ──────────────────────────
+setup_geo_update_cron() {
+    log_step "Configuring weekly geo database auto-update..."
+    local GEO_SCRIPT="$PANEL_DIR/update_geo.sh"
+    cat > "$GEO_SCRIPT" << 'GEOSCRIPT'
+#!/bin/bash
+# MasterPanel — Geo DB auto-updater (runs weekly via cron)
+XRAY_DIR="/usr/local/etc/xray"
+BASE="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download"
+TMP="/tmp/geo_mp_$$"
+mkdir -p "$TMP"
+wget -q "$BASE/geoip.dat"   -O "$TMP/geoip.dat"   2>/dev/null && mv "$TMP/geoip.dat"   "$XRAY_DIR/"
+wget -q "$BASE/geosite.dat" -O "$TMP/geosite.dat"  2>/dev/null && mv "$TMP/geosite.dat" "$XRAY_DIR/"
+rm -rf "$TMP"
+systemctl restart xray 2>/dev/null || true
+echo "[$(date '+%Y-%m-%d %H:%M')] Geo databases updated." >> /opt/masterpanel/logs/geo_update.log
+GEOSCRIPT
+    chmod +x "$GEO_SCRIPT"
+    (crontab -l 2>/dev/null | grep -v update_geo; \
+     echo "0 4 * * 0 bash $GEO_SCRIPT >> /opt/masterpanel/logs/geo_update.log 2>&1") | crontab -
+    log_info "Geo auto-update cron: Sundays 04:00 ✓"
+}
+
+setup_firewall() {
+    log_step "Configuring firewall (UFW)..."
+    declare -a PORTS=(
+        "22/tcp" "80/tcp" "9090/tcp"
+        "443/tcp" "2053/tcp" "2083/tcp" "2087/tcp" "2096/tcp" "8443/tcp"
+        "9443/tcp" "9444/tcp" "9445/tcp" "9446/tcp"
+        "9447/tcp" "9448/tcp" "9449/tcp"
+        "8388/tcp" "8388/udp" "8389/tcp" "8389/udp"
+        "443/udp" "2053/udp" "51820/udp"
+    )
+    for PORT in "${PORTS[@]}"; do
+        ufw allow "$PORT" > /dev/null 2>&1 || true
+    done
+    ufw --force enable > /dev/null 2>&1 || true
+    log_info "Firewall: ${#PORTS[@]} rules applied ✓"
+}
+
+create_services() {
+    log_step "Creating systemd services..."
+
+    cat > "/etc/systemd/system/masterpanel.service" << 'MSVC'
+[Unit]
+Description=MasterPanel v3.0 - Xray Multi-User Control Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/masterpanel
+ExecStart=/opt/masterpanel/venv/bin/python3 /opt/masterpanel/masterpanel.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/masterpanel/logs/panel.log
+StandardError=append:/opt/masterpanel/logs/panel.log
+
+[Install]
+WantedBy=multi-user.target
+MSVC
+
+    # Xray needs its own service so Stats API (port 10085) is accessible
+    cat > "/etc/systemd/system/xray.service" << XSVC
+[Unit]
+Description=Xray-core (MasterPanel managed)
+After=network.target masterpanel.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=$XRAY_DIR/xray run -c $XRAY_CONFIG_DIR/config.json
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$PANEL_DIR/logs/xray-access.log
+StandardError=append:$PANEL_DIR/logs/xray-error.log
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+XSVC
+    systemctl enable xray > /dev/null 2>&1 || true
+    log_info "Xray service created ✓"
+
+    if [[ -f /usr/local/bin/tuic-server ]] && [[ ! -f /tmp/tuic_failed ]]; then
+        cat > "/etc/systemd/system/tuic-server.service" << TSVC
+[Unit]
+Description=TUIC v5 Server (MasterPanel managed)
+After=network.target masterpanel.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/tuic-server -c $PANEL_DIR/configs/tuic_config.json
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$PANEL_DIR/logs/tuic.log
+StandardError=append:$PANEL_DIR/logs/tuic.log
+
+[Install]
+WantedBy=multi-user.target
+TSVC
+        systemctl enable tuic-server > /dev/null 2>&1 || true
+        log_info "TUIC service created ✓"
+    fi
+
+    if [[ -f /usr/local/bin/hysteria ]] && [[ ! -f /tmp/hy2_failed ]]; then
+        mkdir -p /etc/hysteria
+        cat > "/etc/systemd/system/hysteria2.service" << HSVC
+[Unit]
+Description=Hysteria2 Server (MasterPanel managed)
+After=network.target masterpanel.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/hysteria server -c $PANEL_DIR/configs/hysteria2_config.yaml
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$PANEL_DIR/logs/hysteria2.log
+StandardError=append:$PANEL_DIR/logs/hysteria2.log
+
+[Install]
+WantedBy=multi-user.target
+HSVC
+        systemctl enable hysteria2 > /dev/null 2>&1 || true
+        log_info "Hysteria2 service created ✓"
+    fi
+
+    systemctl daemon-reload
+
+    # Panel starts first — writes the initial Xray config from DB on boot
+    systemctl enable masterpanel > /dev/null 2>&1
+    systemctl start masterpanel
+    sleep 4
+
+    if systemctl is-active --quiet masterpanel; then
+        log_info "MasterPanel started ✓"
+    else
+        log_error "Panel failed to start. Check: journalctl -u masterpanel -n 30"
+    fi
+}
+
+setup_ssl_renewal() {
+    log_step "Configuring SSL auto-renewal..."
+    local PRE="systemctl stop masterpanel xray"
+    local POST="systemctl start masterpanel; sleep 4; systemctl restart xray; systemctl restart tuic-server 2>/dev/null; systemctl restart hysteria2 2>/dev/null"
+    local CRON="0 3 * * * certbot renew --quiet --pre-hook '$PRE' --post-hook '$POST'"
+    (crontab -l 2>/dev/null | grep -v certbot; echo "$CRON") | crontab -
+    log_info "SSL auto-renewal cron: daily 03:00 ✓"
+}
+
+print_summary() {
+    SERVER_IP=$(curl -4 -s https://api4.ipify.org 2>/dev/null \
+        || curl -4 -s https://ipv4.icanhazip.com 2>/dev/null \
+        || hostname -I | awk '{for(i=1;i<=NF;i++) if($i !~ /:/) {print $i; exit}}')
+
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║     MasterPanel v3.0 Advanced — Installation Complete! ✓  ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${WHITE}Panel URL   :${NC} ${CYAN}http://$SERVER_IP:$PANEL_PORT${NC}"
+    echo -e "  ${WHITE}Username    :${NC} ${CYAN}$PANEL_USER${NC}"
+    echo -e "  ${WHITE}Domain      :${NC} ${CYAN}$DOMAIN${NC}"
+    echo -e "  ${WHITE}Server IP   :${NC} ${CYAN}$SERVER_IP${NC}"
+    echo ""
+    echo -e "  ${YELLOW}⚠  Open via IP, NOT domain (CF blocks port 9090):${NC}"
+    echo -e "  ${GREEN}→ http://$SERVER_IP:$PANEL_PORT${NC}"
+    echo ""
+    echo -e "  ${WHITE}Installed components:${NC}"
+    echo -ne "  Xray      : "; $XRAY_DIR/xray version 2>/dev/null | head -1 || echo "installed"
+    echo -ne "  TUIC v5   : "
+    [[ -f /usr/local/bin/tuic-server ]] && echo "installed ✓" || echo "skipped ✗"
+    echo -ne "  Hysteria2 : "
+    [[ -f /usr/local/bin/hysteria ]] \
+        && (/usr/local/bin/hysteria version 2>/dev/null | head -1) \
+        || echo "skipped ✗"
+    echo ""
+    echo -e "  ${WHITE}Premium routing active:${NC}"
+    echo -e "  ${GREEN}✓${NC} Ad-Block    : YouTube ads + category-ads-all + adult ad networks"
+    echo -e "  ${GREEN}✓${NC} Iran Bypass : geosite:ir + regexp:*.ir + geoip:ir → direct"
+    echo -e "  ${GREEN}✓${NC} Geo DB      : Weekly auto-update (Sundays 04:00)"
+    echo ""
+    echo -e "  ${YELLOW}Next steps:${NC}"
+    echo -e "  1. Open panel → «مدیریت کاربران» → add your first user"
+    echo -e "  2. Click «مشاهده کانفیگ‌ها» → copy subscription link"
+    echo -e "  3. (Optional) Configure Telegram bot in «تنظیمات»"
+    echo ""
+    echo -e "  ${YELLOW}Management CLI:${NC}"
+    echo -e "  bash $PANEL_DIR/mp.sh status"
+    echo -e "  bash $PANEL_DIR/mp.sh users"
+    echo -e "  bash $PANEL_DIR/mp.sh add-user"
+    echo ""
+    echo -e "  ${YELLOW}GitHub:${NC}"
+    echo -e "  https://github.com/Masterv2panel/Masterpanel"
+    echo ""
+}
+
+# ══ MAIN ════════════════════════════════════════════════════════════
+print_banner
+check_root
+check_os
+get_user_input
+install_dependencies
+install_xray
+install_tuic
+install_hysteria2
+obtain_ssl
+setup_panel
+copy_panel_files
+inject_routing_rules
+setup_geo_update_cron
+setup_firewall
+create_services
+setup_ssl_renewal
+print_summary

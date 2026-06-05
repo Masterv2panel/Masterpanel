@@ -1,210 +1,514 @@
-# 🛡️ Master Panel — پنل مدیریت X-UI سنایی
-
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.0.0-cyan?style=for-the-badge)
-![Shell](https://img.shields.io/badge/shell-bash-green?style=for-the-badge&logo=gnubash)
-![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
-![Ubuntu](https://img.shields.io/badge/Ubuntu-20.04%20%7C%2022.04%20%7C%2024.04-orange?style=for-the-badge&logo=ubuntu)
-![X-UI](https://img.shields.io/badge/X--UI-Sanaei%20Fork-purple?style=for-the-badge)
+<img src="https://img.shields.io/badge/MasterPanel-v3.0_Advanced-2563eb?style=for-the-badge&logo=shield&logoColor=white" alt="Version">
+<img src="https://img.shields.io/badge/Xray_Core-Latest-22c55e?style=for-the-badge" alt="Xray">
+<img src="https://img.shields.io/badge/Python-3.10+-eab308?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+<img src="https://img.shields.io/badge/UI-فارسی_RTL-f97316?style=for-the-badge" alt="Persian">
+<img src="https://img.shields.io/badge/License-MIT-8b5cf6?style=for-the-badge" alt="License">
 
-**پنل مدیریت حرفه‌ای و تعاملی برای X-UI (نسخه سنایی) — کاملاً به فارسی**
+<br><br>
 
-[نصب سریع](#-نصب-سریع) · [ویژگی‌ها](#-ویژگیها) · [راهنما](#-راهنمای-استفاده) · [داشبورد وب](#-داشبورد-وب)
+# 🛡️ MasterPanel v3.0 Advanced Edition
+
+### پنل مدیریت پیشرفته پروتکل‌های Xray با رابط کاربری فارسی
+
+**مدیریت چند کاربره · بدون تبلیغ · عبور خودکار سایت‌های ایرانی · ربات تلگرام · اشتراک اختصاصی**
+
+<br>
+
+[![نصب](https://img.shields.io/badge/نصب_سریع-bash_install.sh-22c55e?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel)
+[![GitHub](https://img.shields.io/badge/GitHub-Masterv2panel/Masterpanel-181717?style=for-the-badge&logo=github)](https://github.com/Masterv2panel/Masterpanel)
 
 </div>
 
 ---
 
-## 📋 معرفی
+## 📋 فهرست مطالب
 
-**Master Panel** یک اسکریپت Bash پیشرفته و یک داشبورد وب فارسی است که مدیریت کامل سرور X-UI (نسخه سنایی/3x-ui) را از طریق یک رابط تعاملی زیبا فراهم می‌کند.
-
-- 🖥️ **TUI فارسی** — منوی رنگی تعاملی در ترمینال (ANSI)
-- 🌐 **Web Dashboard** — داشبورد HTML فارسی، RTL، تم تاریک صنعتی
-- 🔒 **SSL بدون دامنه** — گواهی Let's Encrypt از طریق sslip.io روی IP خالی
-- ☁️ **Cloudflare هوشمند** — پشتیبانی از CDN، IP تمیز، DNS API
-- 🤖 **ربات تلگرام** — بکاپ خودکار، هشدار ترافیک، گزارش روزانه
-
----
-
-## ✨ ویژگی‌ها
-
-### 🔧 پروتکل‌ها و Transport
-| پروتکل | Transport | Security |
-|--------|-----------|----------|
-| VLESS | TCP, WS, gRPC, XHTTP, H2, QUIC | None, TLS, Reality, XTLS |
-| VMess | TCP, WS, gRPC, XHTTP | None, TLS |
-| Trojan | TCP, WS, gRPC | TLS, Reality |
-| ShadowSocks | TCP, WS | — |
-| Hysteria2 | UDP | TLS |
-
-### 👥 مدیریت کاربران
-- ایجاد، ویرایش، حذف کاربر (CRUD کامل)
-- تنظیم حجم ترافیک (GB) و تاریخ انقضا
-- ریست ترافیک، فعال/غیرفعال
-- آمار مصرف و هشدار ۹۰٪ ترافیک
-
-### ☁️ Cloudflare
-- کانفیگ مستقیم (Direct IP) برای Reality / Hysteria2
-- کانفیگ CDN با دامنه Cloudflare-proxied
-- کانفیگ IP تمیز با تزریق Clean IP در آدرس target
-- تست خودکار دسترسی‌پذیری IP های تمیز
-- DNS API برای مدیریت رکوردها
-
-### 🔒 SSL
-- نصب Let's Encrypt **بدون دامنه** از طریق `sslip.io`
-- تبدیل `1.2.3.4` → `1.2.3.4.sslip.io` → گواهی معتبر
-- پشتیبانی از احراز Standalone، Webroot، DNS-CF
-- تمدید خودکار با acme.sh
-
-### 🤖 تلگرام
-- ارسال بکاپ روزانه/هفتگی دیتابیس
-- هشدار کاربران نزدیک به اتمام ترافیک
-- هشدار کاربران منقضی‌شده
-- گزارش ترافیک کامل
-
-### 💾 بکاپ
-- بکاپ دستی و خودکار (Cron)
-- نگهداری آخرین ۷ بکاپ
-- بازیابی از فایل
+- [نصب سریع](#-نصب-سریع)
+- [امکانات](#-امکانات)
+- [پروتکل‌های پشتیبانی شده](#-پروتکل‌های-پشتیبانی-شده)
+- [پیش‌نیازها](#-پیش‌نیازها)
+- [دسترسی به پنل](#-دسترسی-به-پنل)
+- [مدیریت از طریق CLI](#-مدیریت-از-طریق-cli)
+- [راهنمای تنظیمات](#-راهنمای-تنظیمات)
+- [امکانات پرمیوم](#-امکانات-پرمیوم-ad-free--iran-bypass)
+- [ساختار فایل‌ها](#-ساختار-فایل‌ها)
+- [سوالات متداول](#-سوالات-متداول)
 
 ---
 
 ## 🚀 نصب سریع
 
-### روش یک‌خطی (توصیه‌شده)
+### ✅ روش یک — نصب تک‌خطی از GitHub (توصیه‌شده)
+
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/install-xui-panel.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main/install.sh)
 ```
 
-### روش دستی
+> این دستور نیاز به هیچ فایل اضافه‌ای ندارد. اسکریپت تمام فایل‌ها را مستقیماً از GitHub دانلود می‌کند.
+
+---
+
+### ✅ روش دو — کلون و نصب دستی
+
 ```bash
-# ۱. دانلود فایل‌ها
+# دریافت پروژه از GitHub
 git clone https://github.com/Masterv2panel/Masterpanel.git
 cd Masterpanel
 
-# ۲. مجوز اجرا
-chmod +x xui-panel.sh xui-panel-part2.sh install-xui-panel.sh
-
-# ۳. نصب
-sudo bash install-xui-panel.sh
-
-# ۴. اجرا
-sudo xui-panel
-```
-
-### پیش‌نیازها
-```bash
-# نصب خودکار هنگام اولین اجرا — یا دستی:
-sudo apt-get install -y curl jq sqlite3 openssl uuid-runtime qrencode cron bc socat unzip wget
+# اجرای نصب (به‌عنوان root)
+sudo bash install.sh
 ```
 
 ---
 
-## 📁 ساختار فایل‌ها
+### ✅ روش سه — دانلود ZIP و نصب
+
+```bash
+# دانلود و باز کردن آرشیو
+wget https://github.com/Masterv2panel/Masterpanel/archive/refs/heads/main.zip
+unzip main.zip
+cd Masterpanel-main
+
+# اجرای نصب
+sudo bash install.sh
+```
+
+---
+
+### ✅ روش چهار — دانلود فایل‌های جداگانه
+
+```bash
+# ساخت پوشه کاری
+mkdir MasterPanel && cd MasterPanel
+
+# دانلود فایل‌های اصلی
+BASE="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
+curl -L "$BASE/install.sh"      -o install.sh
+curl -L "$BASE/masterpanel.py"  -o masterpanel.py
+curl -L "$BASE/index.html"      -o index.html
+curl -L "$BASE/mp.sh"           -o mp.sh
+
+# اجرای نصب
+sudo bash install.sh
+```
+
+---
+
+### 📋 جریان نصب
+
+```
+┌─────────────────────────────────────────────────────┐
+│              MasterPanel Installer v3.0              │
+├─────────────────────────────────────────────────────┤
+│  1. دریافت اطلاعات (دامنه، نام کاربری، رمز عبور)   │
+│  2. نصب وابستگی‌های سیستم                           │
+│  3. نصب Xray-core (آخرین نسخه از GitHub)            │
+│  4. دانلود geoip.dat + geosite.dat                  │
+│  5. نصب TUIC v5                                     │
+│  6. نصب Hysteria2                                   │
+│  7. دریافت گواهی SSL از Let's Encrypt               │
+│  8. راه‌اندازی Python venv + flask + apscheduler    │
+│  9. کپی فایل‌های پنل (یا دانلود از GitHub)          │
+│ 10. تزریق قوانین Ad-Block + Iran Bypass             │
+│ 11. پیکربندی فایروال UFW (22 پورت)                  │
+│ 12. ساخت سرویس‌های systemd                          │
+│ 13. تنظیم cron بروزرسانی هفتگی geo database         │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## ✨ امکانات
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 👥 مدیریت چند کاربره
+- دیتابیس SQLite مستقل (`users.db`)
+- ایجاد، ویرایش و حذف کاربر از پنل
+- تعیین حجم ترافیک (GB) برای هر کاربر
+- تاریخ انقضا (تعداد روز / تاریخ دقیق / نامحدود)
+- نمایش نوار پیشرفت ترافیک با رنگ‌بندی وضعیت
+- غیرفعال‌سازی خودکار پس از انقضا / اتمام حجم
+
+### 🔗 لینک اشتراک اختصاصی (Subscription)
+- اندپوینت `/sub/<uuid>` برای هر کاربر
+- خروجی Base64 سازگار با v2rayNG، Nekobox، Hiddify
+- نمایش «حجم باقی‌مانده | روزهای مانده» در نام پروفایل
+- هدرهای استاندارد `Subscription-Userinfo` و `Profile-Update-Interval`
+
+### 📊 مانیتورینگ ترافیک زنده
+- پرس‌وجو از Xray Stats API در پس‌زمینه (APScheduler)
+- به‌روزرسانی خودکار مصرف هر کاربر
+- غیرفعال‌سازی فوری پس از اتمام سهمیه
+- اعلان تلگرام برای هر رویداد
+
+</td>
+<td width="50%" valign="top">
+
+### 🚫 بلاک تبلیغات (Ad-Block)
+- مسدود کردن تبلیغات یوتیوب (`geosite:youtube-ads`)
+- فیلتر دسته‌بندی عمومی (`geosite:category-ads-all`)
+- بلاک شبکه‌های بزرگسال (ExoClick, JuicyAds, TrafficJunky)
+- به‌روزرسانی هفتگی پایگاه داده geo
+
+### 🇮🇷 عبور سایت‌های ایرانی (Iran Bypass)
+- تمام دامنه‌های `.ir` مستقیم — بدون VPN
+- IP های ایرانی (`geoip:ir`) → direct
+- بانک‌ها، اپ‌های ایرانی، درگاه‌های پرداخت
+- کاهش چشمگیر مصرف ترافیک VPN
+
+### 📡 ربات تلگرام
+- اطلاع‌رسانی اتمام حجم و انقضای اشتراک
+- بکاپ خودکار روزانه `users.db`
+- ارسال بکاپ دستی با یک کلیک
+
+### ☁️ Clean IP / XHTTP / REALITY
+- تزریق آی‌پی تمیز CloudFlare در کانفیگ‌های CDN
+- پروتکل XHTTP پیشرفته
+- VLESS REALITY Vision با keypair اختصاصی
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🔗 پروتکل‌های پشتیبانی شده
+
+| پروتکل | شبکه | امنیت | نوع اتصال | پورت |
+|--------|-------|-------|-----------|------|
+| VLESS | WebSocket | TLS | ☁️ CDN (CloudFlare) | 443 |
+| VLESS | XHTTP | TLS | ☁️ CDN (CloudFlare) | 8443 |
+| VLESS | gRPC | TLS | ☁️ CDN (CloudFlare) | 2053 |
+| VMess | WebSocket | TLS | ☁️ CDN (CloudFlare) | 2083 |
+| VMess | XHTTP | TLS | ☁️ CDN (CloudFlare) | 2087 |
+| Trojan | WebSocket | TLS | ☁️ CDN (CloudFlare) | 2096 |
+| **VLESS** | TCP | **REALITY Vision** | 🖥️ IP مستقیم | 9443 |
+| VLESS | XHTTP | TLS | 🖥️ IP مستقیم | 9444 |
+| VLESS | WebSocket | TLS | 🖥️ IP مستقیم | 9445 |
+| VMess | WebSocket | TLS | 🖥️ IP مستقیم | 9446 |
+| Trojan | TCP | TLS | 🖥️ IP مستقیم | 9447 |
+| VLESS | TCP | TLS | 🖥️ IP مستقیم | 9448 |
+| VMess | TCP | TLS | 🖥️ IP مستقیم | 9449 |
+| **Shadowsocks 2022** | TCP+UDP | 2022-blake3 | 🖥️ IP مستقیم | 8388/8389 |
+| **TUIC v5** | UDP | TLS (h3) | 🖥️ IP مستقیم | 2053 |
+| **Hysteria2** | UDP | TLS | 🖥️ IP مستقیم | 443 |
+| WireGuard | UDP | — | 🖥️ IP مستقیم | 51820 |
+
+> 💡 هر کاربر به‌صورت خودکار تمام ۱۷ پروتکل را دریافت می‌کند.
+
+---
+
+## 📦 پیش‌نیازها
+
+| مورد | نیاز |
+|------|------|
+| سیستم‌عامل | Ubuntu 20.04+ / Debian 11+ |
+| دسترسی | Root (`sudo -i`) |
+| رم | حداقل 512 MB (توصیه: 1 GB+) |
+| فضای دیسک | حداقل 2 GB |
+| دامنه | یک دامنه با رکورد DNS A به IP سرور |
+| پورت 80 | برای Let's Encrypt certbot باز باشد |
+| پورت 443 | برای VPN clients |
+
+> ⚠️ **نکته CloudFlare Proxy:** هنگام نصب SSL، Proxy CloudFlare را روی **DNS Only** (خاکستری) بگذارید. بعد از نصب می‌توانید Proxy را فعال کنید.
+
+---
+
+## 🖥️ دسترسی به پنل
+
+پس از نصب موفق، **با IP سرور** (نه دامنه) پنل را باز کنید:
+
+```
+http://YOUR_SERVER_IP:9090
+```
+
+```
+نام کاربری : [چیزی که در نصب وارد کردید]
+رمز عبور   : [چیزی که در نصب وارد کردید]
+```
+
+> ⚠️ **چرا IP؟** CloudFlare پورت 9090 را مسدود می‌کند. پنل مدیریت باید از طریق IP مستقیم باز شود. لینک‌های اشتراک کاربران از دامنه کار می‌کنند.
+
+---
+
+## ⌨️ مدیریت از طریق CLI
+
+```bash
+# مشاهده وضعیت کامل سیستم
+bash /opt/masterpanel/mp.sh status
+
+# لیست کاربران با ترافیک و وضعیت
+bash /opt/masterpanel/mp.sh users
+
+# افزودن کاربر جدید (تعاملی)
+bash /opt/masterpanel/mp.sh add-user
+
+# حذف کاربر
+bash /opt/masterpanel/mp.sh del-user USERNAME
+
+# ری‌ست ترافیک کاربر
+bash /opt/masterpanel/mp.sh reset-user USERNAME
+
+# فعال / غیرفعال کردن کاربر
+bash /opt/masterpanel/mp.sh toggle-user USERNAME
+
+# نمایش لینک اشتراک کاربر
+bash /opt/masterpanel/mp.sh links USERNAME
+
+# اعمال تغییرات پیکربندی از دیتابیس به Xray
+bash /opt/masterpanel/mp.sh apply
+
+# ری‌استارت همه سرویس‌ها
+bash /opt/masterpanel/mp.sh restart-all
+
+# مشاهده لاگ لحظه‌ای (real-time)
+bash /opt/masterpanel/mp.sh logs panel
+bash /opt/masterpanel/mp.sh logs xray
+bash /opt/masterpanel/mp.sh logs tuic
+bash /opt/masterpanel/mp.sh logs hy2
+
+# پشتیبان‌گیری دستی
+bash /opt/masterpanel/mp.sh backup
+
+# تمدید SSL به‌صورت اجباری
+bash /opt/masterpanel/mp.sh renew-ssl
+
+# تغییر رمز ادمین
+bash /opt/masterpanel/mp.sh update-pass
+
+# راهنمای کامل دستورات
+bash /opt/masterpanel/mp.sh help
+```
+
+### جدول کامل دستورات `mp.sh`
+
+| دستور | توضیح |
+|-------|-------|
+| `status` | وضعیت سرویس‌ها + کاربران + SSL + IP |
+| `users` | لیست جامع کاربران از دیتابیس |
+| `add-user` | افزودن کاربر (تعاملی) |
+| `del-user [name]` | حذف کاربر |
+| `reset-user [name]` | ری‌ست ترافیک و فعال‌سازی مجدد |
+| `toggle-user [name]` | فعال ↔ غیرفعال |
+| `links [name]` | نمایش URL اشتراک |
+| `apply` | اعمال تغییرات DB به همه سرویس‌ها |
+| `restart` | ری‌استارت MasterPanel |
+| `restart-xray` | ری‌استارت Xray |
+| `restart-tuic` | ری‌استارت TUIC v5 |
+| `restart-hy2` | ری‌استارت Hysteria2 |
+| `restart-all` | ری‌استارت همه سرویس‌ها |
+| `logs [panel/xray/access/tuic/hy2]` | لاگ لحظه‌ای |
+| `backup` | بکاپ لوکال `users.db` |
+| `renew-ssl` | تمدید اجباری گواهی SSL |
+| `update-pass` | تغییر رمز عبور ادمین |
+| `install-tuic` | نصب/بروزرسانی TUIC v5 |
+| `install-hy2` | نصب/بروزرسانی Hysteria2 |
+| `uninstall` | حذف پنل (دیتابیس حفظ می‌شود) |
+
+---
+
+## ⚙️ راهنمای تنظیمات
+
+### ۱. آی‌پی تمیز CloudFlare
+
+در پنل → **تنظیمات** → فیلد «آی‌پی تمیز»:
+
+```
+162.159.36.1        ← IP تمیز CloudFlare (Anycast)
+104.21.xxx.xxx      ← IP اختصاصی CDN
+cdn.yourcdn.com     ← دامنه Clean Proxy
+```
+
+این مقدار در فیلد `address` کانفیگ‌های CDN جایگزین می‌شود؛ `SNI` و `Host` دست‌نخورده می‌مانند.
+
+### ۲. ربات تلگرام
+
+```
+1. @BotFather → /newbot → دریافت Token
+2. @userinfobot → دریافت Chat ID
+3. پنل → تنظیمات → ربات تلگرام → ذخیره
+4. کلیک روی «تست اتصال ربات»
+```
+
+**رویدادهای خودکار:**
+- 🔴 اتمام حجم ترافیک → پیام فوری به ادمین
+- ⏰ انقضای اشتراک → پیام فوری به ادمین
+- 📦 بکاپ روزانه `users.db` در ساعت تنظیم‌شده
+
+### ۳. بروزرسانی از GitHub
+
+پنل → تنظیمات:
+
+```
+Repo  : Masterv2panel/Masterpanel
+Branch: main
+```
+
+سپس دکمه **«بروزرسانی MasterPanel»**. پنل فایل‌های جدید را دانلود و ری‌استارت می‌کند. `users.db` دست‌نخورده می‌ماند.
+
+---
+
+## 🌟 امکانات پرمیوم (Ad-Free + Iran Bypass)
+
+### 🚫 قوانین Ad-Block (خودکار، بدون تنظیم)
+
+```python
+# تبلیغات یوتیوب
+{"domain": ["geosite:youtube-ads"], "outboundTag": "blocked"}
+
+# دسته‌بندی عمومی تبلیغات
+{"domain": ["geosite:category-ads-all"], "outboundTag": "blocked"}
+
+# شبکه‌های تبلیغاتی بزرگسال
+{"domain": [
+    "domain:exoclick.com", "domain:juicyads.com",
+    "domain:trafficjunky.com", "domain:trafficjunky.net"
+], "outboundTag": "blocked"}
+```
+
+### 🇮🇷 قوانین Iran Bypass (خودکار، بدون تنظیم)
+
+```python
+# دامنه‌های .ir و سایت‌های ایرانی
+{"domain": ["geosite:ir", "regexp:^.*\\.ir$"], "outboundTag": "direct"}
+
+# رنج‌های IP ایرانی
+{"ip": ["geoip:ir"], "outboundTag": "direct"}
+```
+
+**استراتژی:** `IPIfNonMatch` — دقت بالا با کمترین سربار پردازشی
+
+**مزایا:**
+- ✅ بانک‌ها و درگاه پرداخت بدون VPN باز می‌شوند
+- ✅ اپ‌های ایرانی (اسنپ، دیجیکالا، شاد) بدون مشکل کار می‌کنند
+- ✅ مصرف ترافیک VPN تا ۵۰٪ کاهش می‌یابد
+- ✅ سرعت سایت‌های داخلی به‌شدت بهتر می‌شود
+
+### 🗓️ بروزرسانی خودکار Geo Database
+
+```bash
+# اجرا می‌شود: هر یکشنبه ساعت ۰۴:۰۰
+# منبع: Loyalsoldier/v2ray-rules-dat
+0 4 * * 0 bash /opt/masterpanel/update_geo.sh
+```
+
+---
+
+## 📁 ساختار فایل‌های GitHub
 
 ```
 Masterpanel/
-├── xui-panel.sh            # هسته اصلی — TUI، DB، منو، مدیریت کاربران
-├── xui-panel-part2.sh      # ماژول‌ها — کانفیگ، CF، ساب، تلگرام، SSL
-├── install-xui-panel.sh    # نصب‌کننده سریع
-├── xui-dashboard.html      # داشبورد وب فارسی (تک‌فایل HTML)
-└── README.md
+├── install.sh              ← نصب‌کننده اصلی
+├── masterpanel.py          ← بک‌اند Flask + SQLite + Xray API
+├── index.html              ← رابط کاربری فارسی (RTL)
+├── mp.sh                   ← مدیریت CLI
+└── README.md               ← این فایل
+```
+
+### ساختار روی سرور پس از نصب
+
+```
+/opt/masterpanel/
+├── masterpanel.py          ← اپلیکیشن اصلی
+├── panel.conf              ← تنظیمات (دامنه، رمز، مسیرها)
+├── users.db                ← دیتابیس کاربران SQLite ⭐
+├── mp.sh                   ← مدیریت CLI
+├── update_geo.sh           ← بروزرسانی geo database
+├── templates/index.html    ← رابط کاربری
+├── configs/                ← پیکربندی‌های TUIC و Hysteria2
+├── logs/                   ← لاگ‌های همه سرویس‌ها
+└── venv/                   ← محیط Python
+
+/usr/local/etc/xray/
+├── config.json             ← پیکربندی Xray (تولیدشده توسط پنل)
+├── geoip.dat               ← پایگاه داده IP
+└── geosite.dat             ← پایگاه داده دامنه
 ```
 
 ---
 
-## 🖥️ داشبورد وب
+## ❓ سوالات متداول
 
-فایل `xui-dashboard.html` یک داشبورد کامل است که:
-- مستقیم در مرورگر باز می‌شود (بدون نیاز به سرور)
-- با **X-UI API** ارتباط برقرار می‌کند
-- داده‌های نمونه برای نمایش در حالت Demo دارد
-
+**س: چطور بعد از نصب یک کاربر اضافه کنم؟**
 ```bash
-# قرار دادن روی سرور
-cp xui-dashboard.html /var/www/html/
+# از CLI:
+bash /opt/masterpanel/mp.sh add-user
 
-# یا دسترسی مستقیم
-firefox xui-dashboard.html
+# یا از پنل: http://SERVER_IP:9090 → مدیریت کاربران → کاربر جدید
 ```
 
-**اتصال به X-UI:** تنظیمات → آدرس سرور → `http://YOUR-IP:54321`
+**س: آیا سرور ری‌استارت شود چه می‌شود؟**  
+تمام سرویس‌ها (`masterpanel`, `xray`, `tuic-server`, `hysteria2`) با `systemctl enable` تنظیم شده‌اند و به‌صورت خودکار بالا می‌آیند.
 
----
+**س: آیا ترافیک Hysteria2 و TUIC هم محاسبه می‌شود؟**  
+فعلاً خیر — ترافیک از Xray Stats API خوانده می‌شود. اما غیرفعال شدن کاربر در پنل این پروتکل‌ها را هم قطع می‌کند.
 
-## 📖 راهنمای استفاده
-
-```
-sudo xui-panel
-
- ┌─────────────────────────────┐
- │  1) مدیریت کاربران          │
- │  2) مدیریت اینباندها         │
- │  3) تولید کانفیگ             │
- │  4) Cloudflare               │
- │  5) ساب‌اسکریپشن            │
- │  6) ربات تلگرام              │
- │  7) بکاپ                     │
- │  8) SSL                      │
- │  9) مدیریت سرویس            │
- │ 10) تنظیمات                  │
- └─────────────────────────────┘
+**س: چطور رمز ادمین را تغییر دهم؟**
+```bash
+bash /opt/masterpanel/mp.sh update-pass
 ```
 
----
-
-## ⚙️ پیکربندی
-
-تنظیمات در `/etc/xui-panel/config.env` ذخیره می‌شوند:
-
-```env
-PANEL_CF_DOMAIN="vpn.example.com"
-PANEL_TG_TOKEN="your_bot_token"
-PANEL_TG_CHAT_ID="your_chat_id"
-PANEL_PUBLIC_IP="1.2.3.4"
-PANEL_SUB_PORT="8080"
-PANEL_SSL_DOMAIN="1.2.3.4.sslip.io"
+**س: چطور SSL منقضی‌شده را تمدید کنم؟**
+```bash
+bash /opt/masterpanel/mp.sh renew-ssl
 ```
 
----
+**س: اگر پنل کرش کرد چه کار کنم؟**
+```bash
+# بررسی وضعیت
+bash /opt/masterpanel/mp.sh status
 
-## 🔐 امنیت
+# مشاهده لاگ خطا
+bash /opt/masterpanel/mp.sh logs panel
 
-- فایل تنظیمات با `chmod 600` محافظت می‌شود
-- توکن تلگرام هرگز در لاگ ذخیره نمی‌شود
-- بکاپ‌ها در `/var/backups/xui-panel/` با دسترسی root ذخیره می‌شوند
+# یا مستقیم:
+journalctl -u masterpanel -n 50
 
----
+# ری‌استارت
+bash /opt/masterpanel/mp.sh restart
+```
 
-## 📊 سازگاری
-
-| سیستم‌عامل | وضعیت |
-|------------|--------|
-| Ubuntu 20.04 LTS | ✅ کامل |
-| Ubuntu 22.04 LTS | ✅ کامل |
-| Ubuntu 24.04 LTS | ✅ کامل |
-| Debian 11/12 | ⚠️ آزمایشی |
+**س: چطور پنل را کاملاً حذف کنم (بدون از دست دادن کاربران)?**
+```bash
+bash /opt/masterpanel/mp.sh uninstall
+# users.db به /root/users_db_backup_DATE.db کپی می‌شود
+```
 
 ---
 
 ## 🤝 مشارکت
 
-Pull Request ها歡迎 هستند. برای تغییرات بزرگ ابتدا یک Issue باز کنید.
+Pull Request و Issue خوشامد است!
 
----
-
-## 📄 لایسنس
-
-MIT License — آزاد برای استفاده شخصی و تجاری
+```bash
+# Fork → Clone → Branch → Code → PR
+git clone https://github.com/Masterv2panel/Masterpanel.git
+git checkout -b feature/my-feature
+# ... تغییرات ...
+git push origin feature/my-feature
+# باز کردن Pull Request از GitHub
+```
 
 ---
 
 <div align="center">
 
-ساخته‌شده با ❤️ برای جامعه فارسی‌زبان
+**📎 لینک‌های مفید**
 
-**[⭐ Star بده](https://github.com/Masterv2panel/Masterpanel)** اگر مفید بود!
+[GitHub Repository](https://github.com/Masterv2panel/Masterpanel) · 
+[گزارش باگ](https://github.com/Masterv2panel/Masterpanel/issues) · 
+[درخواست ویژگی](https://github.com/Masterv2panel/Masterpanel/issues/new)
+
+<br>
+
+ساخته شده با ❤️ برای جامعه ایرانی
+
+**MasterPanel v3.0 Advanced Edition**  
+`https://github.com/Masterv2panel/Masterpanel`
 
 </div>
