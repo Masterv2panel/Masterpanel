@@ -32,46 +32,84 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step()  { echo -e "${BLUE}[STEP]${NC}  $1"; }
 
 check_root() {
-    [[ $EUID -ne 0 ]] && log_error "Run as root: sudo bash install.sh" && exit 1
+    if [[ $EUID -ne 0 ]]; then
+        log_error "Please run as root:  sudo bash install.sh"
+        exit 1
+    fi
 }
 
 check_os() {
-    [[ ! -f /etc/os-release ]] && log_error "Cannot detect OS." && exit 1
+    if [[ ! -f /etc/os-release ]]; then
+        log_error "Cannot detect OS."
+        exit 1
+    fi
     . /etc/os-release
     log_info "OS: $NAME $VERSION_ID"
-    [[ "$ID" != "ubuntu" && "$ID" != "debian" ]] && \
+    if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
         log_warn "Tested on Ubuntu/Debian — proceeding anyway."
+    fi
 }
 
 get_user_input() {
     echo ""; echo -e "${WHITE}═══ Configuration ════════════════════════════════${NC}"; echo ""
     while true; do
-        echo -ne "${CYAN}Domain (e.g. vpn.example.com): ${NC}"; read DOMAIN
-        [[ -n "$DOMAIN" ]] && break; log_warn "Domain cannot be empty."
+        echo -ne "${CYAN}Domain (e.g. vpn.example.com): ${NC}"
+        read DOMAIN || true
+        if [[ -n "$DOMAIN" ]]; then
+            break
+        fi
+        log_warn "Domain cannot be empty."
     done
     while true; do
-        echo -ne "${CYAN}Admin username (min 4 chars): ${NC}"; read PANEL_USER
-        [[ ${#PANEL_USER} -ge 4 ]] && break; log_warn "At least 4 characters."
+        echo -ne "${CYAN}Admin username (min 4 chars): ${NC}"
+        read PANEL_USER || true
+        if [[ ${#PANEL_USER} -ge 4 ]]; then
+            break
+        fi
+        log_warn "At least 4 characters."
     done
     while true; do
-        echo -ne "${CYAN}Admin password (min 8 chars): ${NC}"; read -s PANEL_PASS; echo ""
-        [[ ${#PANEL_PASS} -ge 8 ]] && break; log_warn "At least 8 characters."
+        echo -ne "${CYAN}Admin password (min 8 chars): ${NC}"
+        read -s PANEL_PASS || true
+        echo ""
+        if [[ ${#PANEL_PASS} -ge 8 ]]; then
+            break
+        fi
+        log_warn "At least 8 characters."
     done
     echo ""
     log_info "Domain: $DOMAIN  |  User: $PANEL_USER  |  Port: $PANEL_PORT"
     echo ""
-    echo -ne "${YELLOW}Continue? [y/N]: ${NC}"; read CONFIRM
-    [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && log_warn "Cancelled." && exit 0
+    echo -ne "${YELLOW}Continue? [y/N]: ${NC}"
+    read CONFIRM || true
+    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+        log_warn "Cancelled."
+        exit 0
+    fi
 }
 
 install_dependencies() {
     log_step "Installing system dependencies..."
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        curl wget git unzip python3 python3-pip python3-venv \
-        certbot ufw openssl uuid-runtime jq net-tools \
-        qrencode ca-certificates sqlite3 2>/dev/null || true
-    log_info "Dependencies installed (including git, wget, curl)."
+
+    # Run apt-get update — show partial output so we can see errors
+    log_info "Updating package lists..."
+    apt-get update 2>&1 | grep -E "^(Err|W:|E:)" || true
+
+    # Core tools first (needed by the rest of the installer)
+    log_info "Installing core tools (curl, wget, git)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y         curl wget git unzip ca-certificates 2>&1 | tail -3 || true
+
+    # If git still missing, try alternative package name
+    if ! command -v git &>/dev/null; then
+        log_warn "git not found via apt — trying git-core..."
+        apt-get install -y git-core 2>/dev/null || true
+    fi
+
+    # Main dependency batch
+    log_info "Installing remaining dependencies..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq         python3 python3-pip python3-venv         certbot ufw openssl uuid-runtime jq net-tools         qrencode sqlite3 2>/dev/null || true
+
+    log_info "Dependencies installed."
 }
 
 install_xray() {
@@ -113,8 +151,8 @@ install_xray() {
 
 _ensure_geo_databases() {
     local MISSING=0
-    [[ ! -f "$XRAY_CONFIG_DIR/geoip.dat"   ]] && MISSING=1
-    [[ ! -f "$XRAY_CONFIG_DIR/geosite.dat" ]] && MISSING=1
+    if [[ ! -f "$XRAY_CONFIG_DIR/geoip.dat" ]];   then MISSING=1; fi
+    if [[ ! -f "$XRAY_CONFIG_DIR/geosite.dat" ]];  then MISSING=1; fi
     if [[ $MISSING -eq 1 ]]; then
         log_info "Downloading enhanced geo databases (Loyalsoldier/v2ray-rules-dat)..."
         local BASE="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download"
