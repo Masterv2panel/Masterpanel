@@ -68,10 +68,10 @@ install_dependencies() {
     log_step "Installing system dependencies..."
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        curl wget unzip python3 python3-pip python3-venv \
+        curl wget git unzip python3 python3-pip python3-venv \
         certbot ufw openssl uuid-runtime jq net-tools \
         qrencode ca-certificates sqlite3 2>/dev/null || true
-    log_info "Dependencies installed."
+    log_info "Dependencies installed (including git, wget, curl)."
 }
 
 install_xray() {
@@ -210,37 +210,72 @@ PANELCONF
 
 copy_panel_files() {
     log_step "Installing panel application files..."
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # GitHub source — used as fallback if files not found locally
-    GH_REPO="Masterv2panel/Masterpanel"
-    GH_BRANCH="main"
-    GH_RAW="https://raw.githubusercontent.com/${GH_REPO}/${GH_BRANCH}"
+    local GH_REPO="Masterv2panel/Masterpanel"
+    local GH_BRANCH="main"
+    local GH_RAW="https://raw.githubusercontent.com/${GH_REPO}/${GH_BRANCH}"
 
-    _install_file() {
-        local SRC_NAME="$1"   # filename in repo root
-        local DST_PATH="$2"   # absolute destination path
+    # ── Detect execution mode ─────────────────────────────────────
+    # When run via  bash <(curl ...)  BASH_SOURCE[0] is empty, "bash",
+    # or "/dev/fd/N" — none of those are real local paths.
+    local SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+    local SCRIPT_DIR=""
+    local IS_LOCAL=0
 
-        if [[ -f "$SCRIPT_DIR/$SRC_NAME" ]]; then
-            cp "$SCRIPT_DIR/$SRC_NAME" "$DST_PATH"
-            log_info "Installed (local): $SRC_NAME"
-        else
-            log_warn "$SRC_NAME not found locally — downloading from GitHub..."
-            if wget -q "$GH_RAW/$SRC_NAME" -O "$DST_PATH" 2>/dev/null; then
-                log_info "Downloaded from GitHub: $SRC_NAME"
-            else
-                log_error "Cannot obtain $SRC_NAME. Check internet or add file locally."
-                exit 1
-            fi
+    if [[ -n "$SCRIPT_PATH" ]] && \
+       [[ "$SCRIPT_PATH" != "bash" ]] && \
+       [[ "$SCRIPT_PATH" != /dev/fd/* ]] && \
+       [[ "$SCRIPT_PATH" != /proc/* ]] && \
+       [[ -f "$SCRIPT_PATH" ]]; then
+        SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+        IS_LOCAL=1
+        log_info "Running from local directory: $SCRIPT_DIR"
+    else
+        log_info "Running via pipe/curl — files will be downloaded from GitHub."
+    fi
+
+    # ── File fetcher ──────────────────────────────────────────────
+    _get_file() {
+        local SRC="$1"   # filename in repo root
+        local DST="$2"   # absolute destination path
+
+        # 1. Try local directory (git clone / manual download)
+        if [[ $IS_LOCAL -eq 1 ]] && [[ -f "$SCRIPT_DIR/$SRC" ]]; then
+            cp "$SCRIPT_DIR/$SRC" "$DST"
+            log_info "Installed (local): $SRC ✓"
+            return 0
         fi
+
+        # 2. wget from GitHub
+        log_info "Downloading: $SRC ..."
+        local TMP; TMP="/tmp/_mp_dl_$$_${SRC//\//_}"
+        if wget -q --timeout=30 --tries=3 "${GH_RAW}/${SRC}" -O "$TMP" 2>/dev/null \
+           && [[ -s "$TMP" ]]; then
+            mv "$TMP" "$DST"
+            log_info "Downloaded (wget): $SRC ✓"
+            return 0
+        fi
+        rm -f "$TMP"
+
+        # 3. curl fallback
+        log_warn "wget failed — trying curl..."
+        if curl -fsSL --max-time 30 "${GH_RAW}/${SRC}" -o "$DST" 2>/dev/null \
+           && [[ -s "$DST" ]]; then
+            log_info "Downloaded (curl): $SRC ✓"
+            return 0
+        fi
+
+        # All methods failed
+        log_error "Cannot download '${SRC}' from GitHub."
+        log_error "Ensure the file exists at:"
+        log_error "  https://github.com/${GH_REPO}/blob/${GH_BRANCH}/${SRC}"
+        exit 1
     }
 
     mkdir -p "$PANEL_DIR/templates"
-
-    _install_file "masterpanel.py" "$PANEL_DIR/masterpanel.py"
-    _install_file "index.html"     "$PANEL_DIR/templates/index.html"
-    _install_file "mp.sh"          "$PANEL_DIR/mp.sh"
-
+    _get_file "masterpanel.py" "$PANEL_DIR/masterpanel.py"
+    _get_file "index.html"     "$PANEL_DIR/templates/index.html"
+    _get_file "mp.sh"          "$PANEL_DIR/mp.sh"
     chmod +x "$PANEL_DIR/mp.sh"
 }
 
