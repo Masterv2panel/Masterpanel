@@ -41,10 +41,11 @@ CERT_PATH    = CFG.get("CERT_PATH", "")
 KEY_PATH     = CFG.get("KEY_PATH", "")
 XRAY_CFG_DIR = Path(CFG.get("XRAY_CONFIG_DIR", "/usr/local/etc/xray"))
 XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
+SUB_PORT     = CFG.get("SUB_PORT", "8081")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-CURRENT_VERSION = "4.1.1"
+CURRENT_VERSION = "4.6.0"
 GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
 def serve_html():
@@ -460,12 +461,17 @@ def build_inbound(cfg):
 
     if proto == "vless":
         client = {"id": cfg["id"], "level": 0}
+        if cfg.get("email"): client["email"] = cfg["email"]
         if cfg.get("flow"): client["flow"] = cfg["flow"]
         inbound["settings"] = {"clients": [client], "decryption": "none"}
     elif proto == "vmess":
-        inbound["settings"] = {"clients": [{"id": cfg["id"], "level": 0}]}
+        client = {"id": cfg["id"], "level": 0}
+        if cfg.get("email"): client["email"] = cfg["email"]
+        inbound["settings"] = {"clients": [client]}
     elif proto == "trojan":
-        inbound["settings"] = {"clients": [{"password": cfg["password"], "level": 0}]}
+        client = {"password": cfg["password"], "level": 0}
+        if cfg.get("email"): client["email"] = cfg["email"]
+        inbound["settings"] = {"clients": [client]}
     elif proto == "shadowsocks":
         inbound["settings"] = {
             "method": cfg["method"], "password": cfg["password"], "network": "tcp,udp"
@@ -511,6 +517,45 @@ def build_inbound(cfg):
     return inbound
 
 
+def _check_geosite_has_iran():
+    """Verify geosite.dat has Iran codes by test-running xray with a minimal
+    config that references them. Returns True if xray accepts it (no crash).
+    Cached after first check."""
+    global _GEOSITE_IRAN_CACHE
+    try:
+        return _GEOSITE_IRAN_CACHE
+    except NameError:
+        pass
+
+    test_conf = {
+        "log": {"loglevel": "error"},
+        "inbounds": [{"port": 19998, "listen": "127.0.0.1", "protocol": "dokodemo-door",
+                      "settings": {"address": "127.0.0.1"}}],
+        "outbounds": [{"protocol": "freedom"}, {"tag": "blocked", "protocol": "blackhole"}],
+        "routing": {"rules": [
+            {"type": "field", "domain": ["geosite:category-ir", "geosite:ir", "geosite:category-ads-all"], "outboundTag": "blocked"},
+            {"type": "field", "ip": ["geoip:ir"], "outboundTag": "direct"}
+        ]}
+    }
+    result = False
+    try:
+        tf = XRAY_CFG_DIR / "_geotest.json"
+        tf.write_text(json.dumps(test_conf))
+        r = subprocess.run([XRAY_BIN, "run", "-test", "-c", str(tf)],
+                           capture_output=True, text=True, timeout=15)
+        # If xray accepts the config (no "code not found"), Iran rules exist
+        out = (r.stdout + r.stderr).lower()
+        result = ("code not found" not in out) and ("failed to" not in out or r.returncode == 0)
+        # More reliable: returncode 0 on -test means valid
+        result = (r.returncode == 0)
+        tf.unlink(missing_ok=True)
+    except Exception:
+        result = False
+
+    globals()["_GEOSITE_IRAN_CACHE"] = result
+    return result
+
+
 def write_xray_config(inbounds):
     # Smart dedup by port: prefer reality > tls > none, and skip cf_ip configs
     # (cf_ip configs reuse the same server inbounds, only the client address differs)
@@ -536,6 +581,27 @@ def write_xray_config(inbounds):
         "settings": {"address": "127.0.0.1"}
     })
 
+    # Detect which geosite codes are available to avoid crashes.
+    # The Iranian geosite.dat (Chocolate4U) has category-ir, ir, category-ads-all.
+    # If it's missing those, fall back to minimal safe routing.
+    iran_rules_ok = _check_geosite_has_iran()
+    if iran_rules_ok:
+        routing_rules = [
+            {"type": "field", "inboundTag": ["api"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
+            {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "blocked"},
+            {"type": "field", "domain": ["geosite:category-ir", "geosite:ir"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:ir"], "outboundTag": "direct"},
+        ]
+        domain_strategy = "IPIfNonMatch"
+    else:
+        # Safe fallback — no geosite dependency (won't crash)
+        routing_rules = [
+            {"type": "field", "inboundTag": ["api"], "outboundTag": "direct"},
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
+        ]
+        domain_strategy = "AsIs"
+
     conf = {
         "log": {
             "loglevel": "warning",
@@ -557,11 +623,8 @@ def write_xray_config(inbounds):
             {"tag": "blocked", "protocol": "blackhole"}
         ],
         "routing": {
-            "domainStrategy": "AsIs",
-            "rules": [
-                {"type": "field", "inboundTag": ["api"], "outboundTag": "direct"},
-                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"}
-            ]
+            "domainStrategy": domain_strategy,
+            "rules": routing_rules
         }
     }
 
@@ -906,18 +969,42 @@ def api_settings_save():
     d = request.get_json() or {}
     cfg = load_conf()
 
-    # Update fields
-    if d.get("domain"):      cfg["DOMAIN"]     = d["domain"].strip()
-    if d.get("panel_user"):  cfg["PANEL_USER"]  = d["panel_user"].strip()
+    old_domain = cfg.get("DOMAIN","")
+    new_domain = d.get("domain","").strip()
+    domain_changed = new_domain and new_domain != old_domain
+    ssl_result = ""
+
+    # If domain changed, obtain a new SSL certificate for it
+    if domain_changed:
+        try:
+            # Free port 80 for certbot standalone
+            subprocess.run(["fuser","-k","80/tcp"], capture_output=True, timeout=10)
+            time.sleep(1)
+            r = subprocess.run([
+                "certbot","certonly","--standalone","--non-interactive",
+                "--agree-tos","--register-unsafely-without-email",
+                "-d", new_domain
+            ], capture_output=True, text=True, timeout=120)
+            cert = f"/etc/letsencrypt/live/{new_domain}/fullchain.pem"
+            key  = f"/etc/letsencrypt/live/{new_domain}/privkey.pem"
+            if Path(cert).exists():
+                cfg["DOMAIN"]    = new_domain
+                cfg["CERT_PATH"] = cert
+                cfg["KEY_PATH"]  = key
+                ssl_result = "✅ SSL برای دامنه جدید گرفته شد"
+            else:
+                return jsonify({"ok":False,"error":f"SSL برای {new_domain} گرفته نشد. مطمئن شو دامنه به IP این سرور اشاره می‌کند و پورت ۸۰ باز است.\n{r.stderr[-300:]}"})
+        except subprocess.TimeoutExpired:
+            return jsonify({"ok":False,"error":"گرفتن SSL طول کشید (timeout). DNS را بررسی کن."})
+        except Exception as e:
+            return jsonify({"ok":False,"error":f"خطای SSL: {e}"})
+
+    if d.get("panel_user"):  cfg["PANEL_USER"] = d["panel_user"].strip()
     if d.get("panel_pass") and len(d["panel_pass"]) >= 8:
         cfg["PANEL_PASS"] = d["panel_pass"]
-    if d.get("cert_path"):   cfg["CERT_PATH"]   = d["cert_path"].strip()
-    if d.get("key_path"):    cfg["KEY_PATH"]     = d["key_path"].strip()
 
     # Save to panel.conf
-    lines = []
-    for k, v in cfg.items():
-        lines.append(f"{k}={v}")
+    lines = [f"{k}={v}" for k, v in cfg.items()]
     CONF_FILE.write_text("\n".join(lines))
 
     # Reload globals
@@ -928,10 +1015,13 @@ def api_settings_save():
     CERT_PATH  = new_cfg.get("CERT_PATH", CERT_PATH)
     KEY_PATH   = new_cfg.get("KEY_PATH", KEY_PATH)
 
+    msg = "تنظیمات ذخیره شد"
+    if ssl_result: msg += " — " + ssl_result
+    if domain_changed: msg += " — حتماً دوباره «ساخت همه پروتکل‌ها» را بزنید"
+
     # Restart to apply changes
-    import subprocess as sp
-    sp.Popen(["bash","-c","sleep 1 && systemctl restart masterpanel"])
-    return jsonify({"ok":True,"message":"تنظیمات ذخیره شد — در حال ری‌استارت..."})
+    subprocess.Popen(["bash","-c","sleep 1 && systemctl restart masterpanel"])
+    return jsonify({"ok":True,"message":msg,"domain_changed":domain_changed})
 
 # ── Users API ──────────────────────────────────────────────────
 USERS_FILE = PANEL_DIR / "configs" / "users.json"
@@ -945,44 +1035,55 @@ def load_users():
 def save_users(u):
     USERS_FILE.write_text(json.dumps(u, indent=2, ensure_ascii=False))
 
-def get_user_traffic(uid):
-    """Get traffic usage for a user from iptables or Xray stats."""
+def _query_xray_stats():
+    """Return dict of stat-name -> bytes from Xray API."""
+    xray_bin = XRAY_BIN
     try:
-        # Try iptables
-        result = subprocess.run(
-            ["iptables", "-L", "OUTPUT", "-v", "-n", "-x"],
-            capture_output=True, text=True, timeout=5
-        )
-        # Basic implementation - return 0 for now
-        return 0
-    except:
-        return 0
+        r = subprocess.run([xray_bin, "api", "statsquery", "--server=127.0.0.1:10085"],
+                          capture_output=True, text=True, timeout=8)
+        data = json.loads(r.stdout)
+        return {item.get("name",""): int(item.get("value",0)) for item in data.get("stat",[])}
+    except Exception:
+        return {}
+
+def get_user_traffic(uid, stats=None, user=None):
+    """Per-user traffic from Xray user>>> stats, keyed by the user's email tag.
+    Each user's clients are tagged with email = user's name+id so Xray counts them."""
+    if stats is None:
+        stats = _query_xray_stats()
+    if not user:
+        users = load_users()
+        user = users.get(uid, {})
+    email = f"{user.get('name','u')}-{uid[:8]}"
+    up = stats.get(f"user>>>{email}>>>traffic>>>uplink", 0)
+    down = stats.get(f"user>>>{email}>>>traffic>>>downlink", 0)
+    return up + down
 
 @app.route("/api/users", methods=["GET"])
 @login_required
 def api_users_list():
     users = load_users()
-    # Update traffic for each user
+    stats = _query_xray_stats()
     result = []
     for uid, user in users.items():
-        user["used_bytes"] = get_user_traffic(uid)
-        # Check expiry
+        # Accumulate traffic (add delta to stored total since Xray resets on restart)
+        live = get_user_traffic(uid, stats, user)
+        if live > 0:
+            user["used_bytes"] = max(user.get("used_bytes", 0), live)
+        # Expiry flag
+        user["expired"] = False
         if user.get("expire_at"):
-            from datetime import datetime as dt
             try:
-                exp = dt.strptime(user["expire_at"], "%Y-%m-%d")
-                user["expired"] = dt.now() > exp
-            except:
-                user["expired"] = False
-        else:
-            user["expired"] = False
-        # Check traffic limit
-        if user.get("limit_gb", 0) > 0:
-            limit_bytes = user["limit_gb"] * 1024**3
-            user["traffic_exceeded"] = user["used_bytes"] > limit_bytes
-        else:
-            user["traffic_exceeded"] = False
+                user["expired"] = datetime.now() > datetime.strptime(user["expire_at"], "%Y-%m-%d")
+            except Exception:
+                pass
+        # Traffic limit flag
+        user["traffic_exceeded"] = (user.get("limit_gb",0) > 0 and
+                                    user.get("used_bytes",0) > user["limit_gb"]*1024**3)
         result.append(user)
+    save_users(users)
+    # Auto-disable exceeded/expired
+    enforce_limits()
     return jsonify({"ok": True, "users": result})
 
 @app.route("/api/users", methods=["POST"])
@@ -1014,6 +1115,7 @@ def api_users_create():
         "name":       name,
         "uuid":       new_uuid(),
         "password":   new_password(20),
+        "sub_token":  new_password(24),
         "limit_gb":   limit_gb,
         "expire_at":  expire_at,
         "note":       note,
@@ -1051,6 +1153,42 @@ def api_users_update(uid):
         if k in d: users[uid][k] = d[k]
     save_users(users)
     return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>/renew", methods=["POST"])
+@login_required
+def api_users_renew(uid):
+    """Extend expiry by N days (default 30) and re-enable the user."""
+    d = request.get_json() or {}
+    days = int(d.get("days", 30))
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    u = users[uid]
+    from datetime import timedelta
+    # Extend from today or from current expiry (whichever is later)
+    base = datetime.now()
+    if u.get("expire_at"):
+        try:
+            cur = datetime.strptime(u["expire_at"], "%Y-%m-%d")
+            if cur > base: base = cur
+        except Exception:
+            pass
+    u["expire_at"] = (base + timedelta(days=days)).strftime("%Y-%m-%d")
+    u["enabled"] = True
+    save_users(users)
+    # Re-add inbounds since user is active again
+    rebuild_active_inbounds(users)
+    return jsonify({"ok":True,"user":u,"message":f"{days} روز تمدید شد تا {u['expire_at']}"})
+
+@app.route("/api/users/<uid>/reset-traffic", methods=["POST"])
+@login_required
+def api_users_reset_traffic(uid):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    users[uid]["used_bytes"] = 0
+    users[uid]["enabled"] = True
+    save_users(users)
+    rebuild_active_inbounds(users)
+    return jsonify({"ok":True,"message":"مصرف صفر شد و کاربر فعال شد"})
 
 @app.route("/api/users/<uid>/generate", methods=["POST"])
 @login_required
@@ -1100,8 +1238,10 @@ def api_user_generate(uid):
         "188.114.96.1","188.114.97.1",
     ]
 
+    u_email = f"{user['name']}-{uid[:8]}"
+
     def add(name, proto, **kw):
-        cfg = {"name":name,"protocol":proto,"created_at":ts,**kw}
+        cfg = {"name":name,"protocol":proto,"created_at":ts,"email":u_email,**kw}
         if proto=="vless":         cfg["link"]=vless_link(cfg)
         elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
         elif proto=="trojan":      cfg["link"]=trojan_link(cfg)
@@ -1208,6 +1348,103 @@ def api_user_export(uid, fmt):
     return Response(ct, mimetype="text/plain",
         headers={"Content-Disposition":f"attachment; filename={fn}"})
 
+@app.route("/api/users/<uid>/suburl")
+@login_required
+def api_user_suburl(uid):
+    users = load_users()
+    u = users.get(uid)
+    if not u:
+        return jsonify({"ok": False})
+    # Ensure user has a sub_token (older users may lack it)
+    if not u.get("sub_token"):
+        u["sub_token"] = new_password(24)
+        save_users(users)
+    https_url = f"https://{DOMAIN}:{SUB_PORT}/sub/{u['sub_token']}"
+    http_url  = f"http://{get_server_ip()}:{PANEL_PORT}/sub/{u['sub_token']}"
+    return jsonify({"ok": True, "https": https_url, "http": http_url})
+
+# ── Live System Monitoring ─────────────────────────────────────
+_NET_PREV = {"t": 0.0, "rx": 0, "tx": 0}
+
+def _read_cpu_percent():
+    """Sample /proc/stat twice to compute CPU usage %."""
+    def snap():
+        with open("/proc/stat") as f:
+            parts = f.readline().split()[1:]
+        vals = list(map(int, parts))
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+        total = sum(vals)
+        return idle, total
+    i1, t1 = snap()
+    time.sleep(0.12)
+    i2, t2 = snap()
+    dt = t2 - t1
+    di = i2 - i1
+    if dt <= 0:
+        return 0.0
+    return round((1 - di / dt) * 100, 1)
+
+@app.route("/api/sysinfo")
+@login_required
+def api_sysinfo():
+    info = {"ok": True}
+    # CPU
+    try:
+        info["cpu"] = _read_cpu_percent()
+        info["cores"] = os.cpu_count() or 1
+    except Exception:
+        info["cpu"] = 0; info["cores"] = 1
+    # RAM
+    try:
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                mem[k] = int(v.strip().split()[0]) * 1024  # kB → bytes
+        total = mem.get("MemTotal", 0)
+        avail = mem.get("MemAvailable", 0)
+        used = total - avail
+        info["ram_total"] = total
+        info["ram_used"] = used
+        info["ram_percent"] = round(used / total * 100, 1) if total else 0
+    except Exception:
+        info["ram_total"] = info["ram_used"] = 0; info["ram_percent"] = 0
+    # Disk (root)
+    try:
+        st = os.statvfs("/")
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used = total - free
+        info["disk_total"] = total
+        info["disk_used"] = used
+        info["disk_percent"] = round(used / total * 100, 1) if total else 0
+    except Exception:
+        info["disk_total"] = info["disk_used"] = 0; info["disk_percent"] = 0
+    # Network throughput (bytes/sec since last call)
+    try:
+        rx = tx = 0
+        with open("/proc/net/dev") as f:
+            for line in f.readlines()[2:]:
+                iface, data = line.split(":", 1)
+                if iface.strip() == "lo":
+                    continue
+                cols = data.split()
+                rx += int(cols[0]); tx += int(cols[8])
+        now = time.time()
+        if _NET_PREV["t"] > 0:
+            elapsed = now - _NET_PREV["t"]
+            if elapsed > 0:
+                info["net_rx_speed"] = max(0, int((rx - _NET_PREV["rx"]) / elapsed))
+                info["net_tx_speed"] = max(0, int((tx - _NET_PREV["tx"]) / elapsed))
+        info.setdefault("net_rx_speed", 0)
+        info.setdefault("net_tx_speed", 0)
+        _NET_PREV.update({"t": now, "rx": rx, "tx": tx})
+    except Exception:
+        info["net_rx_speed"] = info["net_tx_speed"] = 0
+    # Uptime
+    info["uptime"] = get_uptime()
+    return jsonify(info)
+
 # ── Traffic Stats ──────────────────────────────────────────────
 @app.route("/api/stats")
 @login_required
@@ -1238,34 +1475,219 @@ def api_stats():
     except:
         return jsonify({"ok":True,"stats":{}})
 
+# ── Public Subscription (HTTPS via Nginx) ──────────────────────
+@app.route("/sub/<token>")
+def public_subscription(token):
+    """Public subscription endpoint — no login. Served over HTTPS by Nginx.
+    Returns base64-encoded config links for v2rayNG / v2rayN / Streisand."""
+    users = load_users()
+    user = next((u for u in users.values() if u.get("sub_token") == token), None)
+    if not user:
+        return Response("Not found", status=404)
+    # Blocked if disabled / expired / over-limit
+    if not user.get("enabled", True):
+        return Response("", mimetype="text/plain")
+    links = [c.get("link","") for c in user.get("configs",[]) if c.get("link")]
+    raw = "\n".join(links)
+    b64 = base64.b64encode(raw.encode()).decode()
+    # Subscription-Userinfo header lets apps show usage/expiry
+    headers = {"Content-Type": "text/plain; charset=utf-8",
+               "Profile-Update-Interval": "12"}
+    limit_bytes = int(user.get("limit_gb",0) * 1024**3)
+    used = int(user.get("used_bytes",0))
+    expire_ts = 0
+    if user.get("expire_at"):
+        try:
+            expire_ts = int(datetime.strptime(user["expire_at"],"%Y-%m-%d").timestamp())
+        except Exception:
+            pass
+    headers["Subscription-Userinfo"] = f"upload=0; download={used}; total={limit_bytes}; expire={expire_ts}"
+    return Response(b64, headers=headers)
+
+
+def enforce_limits():
+    """Disable users that exceeded traffic limit or expired. Called by /api/enforce
+    (cron) and on each users list load."""
+    users = load_users()
+    changed = False
+    now = datetime.now()
+    for u in users.values():
+        if not u.get("enabled", True):
+            continue
+        # Expiry
+        if u.get("expire_at"):
+            try:
+                if now > datetime.strptime(u["expire_at"], "%Y-%m-%d"):
+                    u["enabled"] = False; changed = True; continue
+            except Exception:
+                pass
+        # Traffic limit
+        if u.get("limit_gb", 0) > 0:
+            if u.get("used_bytes", 0) > u["limit_gb"] * 1024**3:
+                u["enabled"] = False; changed = True
+    if changed:
+        save_users(users)
+        # Rebuild Xray config to drop disabled users' inbounds
+        rebuild_active_inbounds(users)
+    return changed
+
+
+def rebuild_active_inbounds(users):
+    """Rebuild Xray inbounds from only enabled users' configs."""
+    inbounds = []
+    for u in users.values():
+        if not u.get("enabled", True):
+            continue
+        for cfg in u.get("configs", []):
+            if cfg.get("protocol") in ("vless","vmess","trojan","shadowsocks"):
+                ib = build_inbound(cfg)
+                if ib:
+                    inbounds.append(ib)
+    if inbounds:
+        write_xray_config(inbounds)
+
+
+@app.route("/api/enforce", methods=["POST"])
+def api_enforce():
+    # Allow internal cron (localhost with header) or logged-in admin
+    if not (request.headers.get("X-Internal") == "1" or session.get("logged_in")):
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    changed = enforce_limits()
+    return jsonify({"ok": True, "changed": changed})
+
+
+# ── Telegram Bot API ───────────────────────────────────────────
+BOT_CONF_FILE = PANEL_DIR / "bot.conf"
+
+def load_bot_conf():
+    cfg = {}
+    if BOT_CONF_FILE.exists():
+        for line in BOT_CONF_FILE.read_text().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                cfg[k.strip()] = v.strip()
+    return cfg
+
+@app.route("/api/bot", methods=["GET"])
+@login_required
+def api_bot_get():
+    cfg = load_bot_conf()
+    running = False
+    try:
+        r = subprocess.run(["systemctl","is-active","masterbot"],
+                          capture_output=True, text=True, timeout=5)
+        running = r.stdout.strip() == "active"
+    except Exception:
+        pass
+    token = cfg.get("BOT_TOKEN","")
+    return jsonify({
+        "ok": True,
+        "token_set": bool(token),
+        "token_preview": (token[:8]+"..."+token[-4:]) if len(token) > 15 else "",
+        "admin_ids": cfg.get("ADMIN_IDS",""),
+        "running": running
+    })
+
+@app.route("/api/bot", methods=["POST"])
+@login_required
+def api_bot_save():
+    d = request.get_json() or {}
+    cfg = load_bot_conf()
+    if d.get("token"):      cfg["BOT_TOKEN"] = d["token"].strip()
+    if "admin_ids" in d:    cfg["ADMIN_IDS"] = str(d["admin_ids"]).strip()
+    BOT_CONF_FILE.write_text("\n".join(f"{k}={v}" for k,v in cfg.items()))
+    BOT_CONF_FILE.chmod(0o600)
+    # (Re)start bot service if token is set
+    msg = "تنظیمات ربات ذخیره شد"
+    if cfg.get("BOT_TOKEN"):
+        try:
+            subprocess.run(["systemctl","enable","masterbot"], capture_output=True, timeout=10)
+            subprocess.run(["systemctl","restart","masterbot"], capture_output=True, timeout=10)
+            msg += " — ربات راه‌اندازی شد"
+        except Exception as e:
+            msg += f" (هشدار: {e})"
+    return jsonify({"ok": True, "message": msg})
+
+@app.route("/api/bot/toggle", methods=["POST"])
+@login_required
+def api_bot_toggle():
+    d = request.get_json() or {}
+    action = "start" if d.get("start") else "stop"
+    try:
+        subprocess.run(["systemctl", action, "masterbot"], capture_output=True, timeout=10)
+        return jsonify({"ok": True, "message": f"ربات {action} شد"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 # ── Update API ─────────────────────────────────────────────────
 @app.route("/api/update", methods=["POST"])
 @login_required
 def api_update():
     results = []
-    try:
-        import urllib.request as ur
-        for fname, dest in [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
-                             ("index.html", PANEL_DIR/"templates"/"index.html")]:
-            req = ur.Request(f"{GITHUB_RAW}/{fname}", headers={"User-Agent":"MasterPanel/4.0"})
-            with ur.urlopen(req, timeout=15) as r: dest.write_bytes(r.read())
-            results.append(f"OK: {fname}")
-        import subprocess as sp
-        sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
-        return jsonify({"ok":True,"results":results,"message":"آپدیت انجام شد — رفرش کنید"})
-    except Exception as e:
-        return jsonify({"ok":False,"error":str(e),"results":results})
+    errors = []
+    files = [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
+             ("index.html", PANEL_DIR/"templates"/"index.html"),
+             ("version.txt", PANEL_DIR/"version.txt")]
+    for fname, dest in files:
+        url = f"{GITHUB_RAW}/{fname}"
+        ok = False
+        # Try urllib first
+        try:
+            import urllib.request as ur
+            req = ur.Request(url, headers={"User-Agent":"MasterPanel"})
+            with ur.urlopen(req, timeout=20) as r:
+                data = r.read()
+                if data and len(data) > 50:
+                    dest.write_bytes(data)
+                    results.append(f"OK: {fname} ({len(data)} bytes)")
+                    ok = True
+        except Exception as e:
+            errors.append(f"urllib {fname}: {e}")
+        # Fallback to wget
+        if not ok:
+            try:
+                r = subprocess.run(["wget","-q","-O",str(dest),url],
+                                   capture_output=True, text=True, timeout=20)
+                if r.returncode == 0 and dest.exists() and dest.stat().st_size > 50:
+                    results.append(f"OK (wget): {fname}")
+                    ok = True
+                else:
+                    errors.append(f"wget {fname}: rc={r.returncode}")
+            except Exception as e:
+                errors.append(f"wget {fname}: {e}")
+
+    if not any("masterpanel.py" in r for r in results):
+        return jsonify({"ok":False,
+            "error":"دانلود masterpanel.py ناموفق بود. بررسی کن فایل‌ها روی GitHub موجود باشند:\n"+GITHUB_RAW,
+            "details":errors})
+
+    subprocess.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
+    return jsonify({"ok":True,"results":results,"message":"✅ آپدیت انجام شد — ۵ ثانیه صبر کن و رفرش کن"})
 
 @app.route("/api/update/check")
 @login_required
 def api_update_check():
+    latest = "unknown"
+    err = ""
     try:
         import urllib.request as ur
-        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel/4.0"})
-        with ur.urlopen(req, timeout=5) as r: latest = r.read().decode().strip()
-        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
-    except:
-        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
+        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel"})
+        with ur.urlopen(req, timeout=8) as r:
+            latest = r.read().decode().strip()
+    except Exception as e:
+        # Fallback to wget
+        try:
+            r = subprocess.run(["wget","-qO-",f"{GITHUB_RAW}/version.txt"],
+                              capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip():
+                latest = r.stdout.strip()
+            else:
+                err = str(e)
+        except Exception as e2:
+            err = str(e2)
+    return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,
+                    "update_available":(latest!="unknown" and latest!=CURRENT_VERSION),
+                    "error":err})
 
 # ── Run ───────────────────────────────────────────────────────
 if __name__ == "__main__":

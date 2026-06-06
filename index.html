@@ -550,6 +550,9 @@ nav{flex:1;padding:12px;overflow-y:auto}
       <div class="nav-i" onclick="showPage('logs')">
         <div class="ni">📋</div>لاگ‌ها
       </div>
+      <div class="nav-i" onclick="showPage('bot')">
+        <div class="ni">🤖</div>ربات تلگرام
+      </div>
       <div class="nav-i" onclick="showPage('settings')">
         <div class="ni">🔧</div>تنظیمات
       </div>
@@ -620,6 +623,36 @@ nav{flex:1;padding:12px;overflow-y:auto}
           </div>
           <div class="stat-val" id="s-uptime">—</div>
           <div class="stat-sub">از آخرین ریبوت</div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <div class="card-head-l">
+            <div class="card-head-ico">📊</div>
+            <h3>مانیتورینگ زنده</h3>
+          </div>
+          <span class="badge b-on" id="mon-live">● زنده</span>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px"><span>🔥 پردازنده</span><span id="mon-cpu-t">—</span></div>
+              <div class="pgb" style="height:8px"><div class="pgf prog-ok" id="mon-cpu-bar" style="width:0%"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px"><span>🧠 رم</span><span id="mon-ram-t">—</span></div>
+              <div class="pgb" style="height:8px"><div class="pgf prog-ok" id="mon-ram-bar" style="width:0%"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px"><span>💾 دیسک</span><span id="mon-disk-t">—</span></div>
+              <div class="pgb" style="height:8px"><div class="pgf prog-ok" id="mon-disk-bar" style="width:0%"></div></div>
+            </div>
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:4px">
+              <div style="font-size:12px;color:var(--text2)">🌐 شبکه</div>
+              <div style="font-size:13px;font-weight:700;color:var(--green)">⬇ <span id="mon-rx">0</span></div>
+              <div style="font-size:13px;font-weight:700;color:var(--accent)">⬆ <span id="mon-tx">0</span></div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -775,6 +808,71 @@ nav{flex:1;padding:12px;overflow-y:auto}
       <div id="users-list"></div>
     </div>
 
+    <!-- BOT PAGE -->
+    <div class="page" id="page-bot">
+      <div class="topbar">
+        <div><div class="page-title">ربات تلگرام 🤖</div><div class="page-sub">مدیریت پنل از طریق تلگرام</div></div>
+        <div class="tbar-right"><button class="btn btn-p btn-sm" onclick="saveBot()">💾 ذخیره و راه‌اندازی</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <!-- Bot config -->
+        <div class="card">
+          <div class="card-head"><div class="card-head-l"><div class="card-head-ico">🤖</div><h3>تنظیمات ربات</h3></div>
+            <span id="bot-status" class="badge b-off">خاموش</span>
+          </div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;letter-spacing:.5px">توکن ربات (از @BotFather)</label>
+              <input type="text" id="bot-token" placeholder="123456:ABC-DEF..." style="width:100%;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(79,110,247,.15);border-radius:10px;color:var(--text);font-family:monospace;font-size:12px;direction:ltr">
+              <div id="bot-token-set" style="font-size:11px;color:var(--green);margin-top:4px;display:none">✅ توکن ذخیره شده</div>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;letter-spacing:.5px">آیدی عددی ادمین‌ها (با کاما جدا کن)</label>
+              <input type="text" id="bot-admins" placeholder="123456789,987654321" style="width:100%;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(79,110,247,.15);border-radius:10px;color:var(--text);font-family:monospace;font-size:13px;direction:ltr">
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">آیدی خود را از @userinfobot بگیرید</div>
+            </div>
+            <div id="bot-msg" style="display:none;padding:10px;border-radius:8px;font-size:13px"></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-success btn-sm" style="flex:1" onclick="toggleBot(true)">▶ روشن</button>
+              <button class="btn btn-danger btn-sm" style="flex:1" onclick="toggleBot(false)">⏸ خاموش</button>
+            </div>
+          </div>
+        </div>
+        <!-- Setup guide -->
+        <div class="card">
+          <div class="card-head"><div class="card-head-l"><div class="card-head-ico">📖</div><h3>راهنمای نصب ربات</h3></div></div>
+          <div class="card-body" style="font-size:13px;line-height:2">
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">1</div>
+              <div>در تلگرام به <b>@BotFather</b> برو و <code>/newbot</code> بزن. نام و یوزرنیم انتخاب کن.</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">2</div>
+              <div>توکنی که BotFather می‌دهد را کپی کن و در فیلد <b>توکن ربات</b> بذار.</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">3</div>
+              <div>به <b>@userinfobot</b> پیام بده تا <b>آیدی عددی</b> تو را بدهد. در فیلد ادمین‌ها بذار.</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">4</div>
+              <div><b>ذخیره و راه‌اندازی</b> را بزن. ربات روشن می‌شود.</div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0">✓</div>
+              <div>در تلگرام به ربات خودت <code>/start</code> بزن.</div>
+            </div>
+            <div style="margin-top:16px;padding:12px;background:rgba(79,110,247,.08);border:1px solid rgba(79,110,247,.15);border-radius:10px;font-size:12px">
+              <b>قابلیت‌ها:</b><br>
+              • ادمین: ساخت/حذف کاربر، آمار، ری‌استارت، کانفیگ‌ها<br>
+              • کاربر عادی: با کد اتصال، کانفیگ و مصرف خودش را می‌بیند<br>
+              • برای اتصال کاربر: در پنل دکمه «کد اتصال» را بزن و کد را به او بده
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- SETTINGS PAGE -->
     <div class="page" id="page-settings">
       <div class="topbar">
@@ -896,7 +994,8 @@ nav{flex:1;padding:12px;overflow-y:auto}
         <button class="btn btn-g btn-sm" style="color:#c084fc;border-color:rgba(168,85,247,.3)" onclick="genForUser('hy2')">Hysteria2</button>
       </div>
     </div>
-    <div id="ucfg-export" style="display:none;gap:8px;margin-bottom:12px">
+    <div id="ucfg-export" style="display:none;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-p btn-sm" onclick="copySubUrl()">🔗 لینک سابسکریپشن (HTTPS)</button>
       <button class="btn btn-success btn-sm" onclick="copyUserSub()">📋 کپی سابسکریپشن</button>
       <button class="btn btn-g btn-sm" onclick="dlUserLinks()">⬇ دانلود</button>
     </div>
@@ -957,18 +1056,54 @@ function showPage(n) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-i').forEach(i=>i.classList.remove('active'));
   document.getElementById('page-'+n).classList.add('active');
-  const map={dashboard:0,users:1,configs:2,generate:3,test:4,tls:5,logs:6,settings:7};
+  const map={dashboard:0,users:1,configs:2,generate:3,test:4,tls:5,logs:6,bot:7,settings:8};
   const items=document.querySelectorAll('.nav-i');
   if(map[n]!==undefined) items[map[n]].classList.add('active');
   if(n==='configs') loadCfgs();
   if(n==='logs') loadLogs();
   if(n==='users') loadUsers();
   if(n==='settings') loadSettings();
+  if(n==='bot') loadBot();
   if(n==='tls' && !document.getElementById('tls-h').value) document.getElementById('tls-h').value=window._domain||'';
 }
 
 // ── Init ──────────────────────────────────────────────────────
-async function initApp() { await loadStatus(); await loadCfgs(); }
+async function initApp() { await loadStatus(); await loadCfgs(); startMonitor(); }
+
+// ── Live Monitoring ───────────────────────────────────────────
+let _monTimer=null;
+function fmtSpeed(b){
+  b=b||0;
+  if(b<1024)return b+' B/s';
+  if(b<1048576)return (b/1024).toFixed(1)+' KB/s';
+  return (b/1048576).toFixed(2)+' MB/s';
+}
+function fmtGB(b){return ((b||0)/1073741824).toFixed(1)+'GB';}
+function barColor(p){return p<60?'prog-ok':p<85?'prog-warn':'prog-full';}
+async function pollMonitor(){
+  try{
+    const d=await(await fetch('/api/sysinfo')).json();
+    if(!d.ok)return;
+    const cpu=document.getElementById('mon-cpu-bar'),cpuT=document.getElementById('mon-cpu-t');
+    cpu.style.width=d.cpu+'%';cpu.className='pgf '+barColor(d.cpu);cpuT.textContent=d.cpu+'% ('+d.cores+' هسته)';
+    const ram=document.getElementById('mon-ram-bar'),ramT=document.getElementById('mon-ram-t');
+    ram.style.width=d.ram_percent+'%';ram.className='pgf '+barColor(d.ram_percent);
+    ramT.textContent=d.ram_percent+'% ('+fmtGB(d.ram_used)+'/'+fmtGB(d.ram_total)+')';
+    const dsk=document.getElementById('mon-disk-bar'),dskT=document.getElementById('mon-disk-t');
+    dsk.style.width=d.disk_percent+'%';dsk.className='pgf '+barColor(d.disk_percent);
+    dskT.textContent=d.disk_percent+'% ('+fmtGB(d.disk_used)+'/'+fmtGB(d.disk_total)+')';
+    document.getElementById('mon-rx').textContent=fmtSpeed(d.net_rx_speed);
+    document.getElementById('mon-tx').textContent=fmtSpeed(d.net_tx_speed);
+  }catch(e){}
+}
+function startMonitor(){
+  if(_monTimer)clearInterval(_monTimer);
+  pollMonitor();
+  _monTimer=setInterval(()=>{
+    // Only poll while dashboard is visible
+    if(document.getElementById('page-dashboard').classList.contains('active'))pollMonitor();
+  },3000);
+}
 
 // ── Status ────────────────────────────────────────────────────
 async function loadStatus() {
@@ -1210,8 +1345,10 @@ async function loadUsers(){
               <span style="font-family:monospace">${u.uuid.substring(0,8)}...</span>
             </div>
           </div>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-p btn-sm" onclick="openUserCfgs('${u.id}')">⚙️ کانفیگ ${cfgN>0?`<span class="nav-badge">${cfgN}</span>`:''}</button>
+            <button class="btn btn-success btn-sm" onclick="renewUser('${u.id}')">📅 تمدید</button>
+            <button class="btn btn-g btn-sm" onclick="resetTraffic('${u.id}')">♻️ ریست حجم</button>
             <button class="btn btn-g btn-sm" onclick="toggleUser('${u.id}',${!u.enabled})">${u.enabled?'⏸':'▶'}</button>
             <button class="btn btn-danger btn-sm" onclick="delUser('${u.id}')">🗑</button>
           </div>
@@ -1259,6 +1396,26 @@ async function toggleUser(uid,en){
   loadUsers();
 }
 
+async function renewUser(uid){
+  const days=prompt('چند روز تمدید شود؟',30);
+  if(days===null)return;
+  const n=parseInt(days)||30;
+  try{
+    const d=await(await fetch('/api/users/'+uid+'/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:n})})).json();
+    toast(d.ok?('✅ '+d.message):('❌ '+(d.error||'خطا')));
+    loadUsers();
+  }catch(e){toast('❌ خطای شبکه');}
+}
+
+async function resetTraffic(uid){
+  if(!confirm('حجم مصرفی این کاربر صفر شود؟'))return;
+  try{
+    const d=await(await fetch('/api/users/'+uid+'/reset-traffic',{method:'POST'})).json();
+    toast(d.ok?'♻️ حجم صفر شد':('❌ '+(d.error||'خطا')));
+    loadUsers();
+  }catch(e){toast('❌ خطای شبکه');}
+}
+
 async function openUserCfgs(uid){
   const d=await(await fetch('/api/users')).json();
   curUser=d.users.find(u=>u.id===uid);
@@ -1295,6 +1452,25 @@ function showUserQR(i){const c=userCfgs[i];if(c)showQR2(c.link,c.name);}
 function copyUserCfg(i){const c=userCfgs[i];if(c&&c.link)navigator.clipboard.writeText(c.link).then(()=>toast('✅ کپی شد'));}
 function copyUserSub(){const links=userCfgs.map(c=>c.link).filter(Boolean).join('\n');navigator.clipboard.writeText(btoa(unescape(encodeURIComponent(links)))).then(()=>toast('✅ سابسکریپشن کپی شد'));}
 function dlUserLinks(){if(!curUser)return;const lines=userCfgs.map(c=>'# '+c.name+'\n'+(c.link||'')).join('\n\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=curUser.name+'_configs.txt';a.click();}
+async function copySubUrl(){
+  if(!curUser)return;
+  try{
+    const d=await(await fetch('/api/users/'+curUser.id+'/suburl')).json();
+    if(d.ok){
+      navigator.clipboard.writeText(d.https).then(()=>toast('✅ لینک HTTPS کپی شد'));
+      send_show_suburl(d.https,d.http);
+    }else toast('❌ خطا');
+  }catch(e){toast('❌ خطای شبکه');}
+}
+function send_show_suburl(https,http){
+  const list=document.getElementById('ucfg-list');
+  const box=document.createElement('div');
+  box.style.cssText='background:rgba(79,110,247,.08);border:1px solid rgba(79,110,247,.2);border-radius:10px;padding:12px;margin-bottom:12px;font-size:12px';
+  box.innerHTML='<div style="font-weight:700;margin-bottom:6px">🔗 لینک سابسکریپشن (در v2rayNG وارد کن):</div>'+
+    '<div style="font-family:monospace;word-break:break-all;color:var(--accent);margin-bottom:8px">'+https+'</div>'+
+    '<div style="font-size:11px;color:var(--text2)">نسخه HTTP (اگر HTTPS کار نکرد): <span style="font-family:monospace;word-break:break-all">'+http+'</span></div>';
+  list.prepend(box);
+}
 
 function showQR2(link,name){
   curLink=link;
@@ -1308,6 +1484,45 @@ function showQR2(link,name){
 }
 
 // ── Settings ──────────────────────────────────────────────────
+// ── Telegram Bot ──────────────────────────────────────────────
+async function loadBot(){
+  try{
+    const d=await(await fetch('/api/bot')).json();
+    document.getElementById('bot-admins').value=d.admin_ids||'';
+    const setEl=document.getElementById('bot-token-set');
+    if(d.token_set){
+      document.getElementById('bot-token').placeholder=d.token_preview||'توکن ذخیره شده';
+      setEl.style.display='block';
+    }
+    const st=document.getElementById('bot-status');
+    if(d.running){st.className='badge b-on';st.textContent='🟢 روشن';}
+    else{st.className='badge b-off';st.textContent='🔴 خاموش';}
+  }catch(e){}
+}
+
+async function saveBot(){
+  const token=document.getElementById('bot-token').value.trim();
+  const admins=document.getElementById('bot-admins').value.trim();
+  const msg=document.getElementById('bot-msg');
+  if(!admins){msg.style.display='block';msg.style.background='rgba(239,68,68,.08)';msg.style.color='var(--red)';msg.textContent='❌ آیدی ادمین الزامی است';return;}
+  const body={admin_ids:admins};
+  if(token)body.token=token;
+  try{
+    const d=await(await fetch('/api/bot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    msg.style.display='block';
+    if(d.ok){msg.style.background='rgba(16,185,129,.1)';msg.style.color='var(--green)';msg.textContent='✅ '+(d.message||'ذخیره شد');toast('✅ ربات راه‌اندازی شد');setTimeout(loadBot,1500);}
+    else{msg.style.background='rgba(239,68,68,.08)';msg.style.color='var(--red)';msg.textContent='❌ '+(d.error||'خطا');}
+  }catch(e){msg.style.display='block';msg.style.color='var(--red)';msg.textContent='❌ خطای شبکه';}
+}
+
+async function toggleBot(start){
+  try{
+    const d=await(await fetch('/api/bot/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start})})).json();
+    toast(d.ok?(start?'▶ ربات روشن شد':'⏸ ربات خاموش شد'):'❌ '+(d.error||'خطا'));
+    setTimeout(loadBot,1000);
+  }catch(e){toast('❌ خطا');}
+}
+
 async function loadSettings(){
   try{
     const d=await(await fetch('/api/settings')).json();
@@ -1345,10 +1560,12 @@ async function checkUpdate(){
   try{
     const d=await(await fetch('/api/update/check')).json();
     document.getElementById('upd-cur-m').textContent=d.current||'—';
-    document.getElementById('upd-lat-m').textContent=d.latest||'—';
+    document.getElementById('upd-lat-m').textContent=d.latest||'نامشخص';
     const btn=document.getElementById('upd-btn-m');
-    if(d.update_available){btn.textContent='🔄 نصب آپدیت';btn.className='btn btn-p';}
-    else{btn.textContent='✅ آخرین نسخه';btn.className='btn btn-success';}
+    // Always allow update (even if version unknown or same — forces re-download)
+    if(d.update_available){btn.textContent='🔄 نصب آپدیت جدید';btn.className='btn btn-p';}
+    else{btn.textContent='🔄 دانلود مجدد از گیت‌هاب';btn.className='btn btn-p';}
+    btn.disabled=false;
   }catch(e){document.getElementById('upd-lat-m').textContent='خطا';}
 }
 

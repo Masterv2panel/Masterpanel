@@ -120,12 +120,17 @@ SVC
     systemctl daemon-reload
     systemctl enable xray > /dev/null 2>&1
 
-    # ── GeoIP + GeoSite data ──────────────────────────────
-    log_info "Downloading geoip.dat and geosite.dat..."
-    wget -q "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" \
-        -O "$XRAY_DIR/geoip.dat" || log_warn "geoip.dat download failed"
-    wget -q "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
-        -O "$XRAY_DIR/geosite.dat" || log_warn "geosite.dat download failed"
+    # ── GeoIP + GeoSite data (Iranian rules — has category-ir, ir, ads) ──
+    log_info "Downloading Iranian geoip.dat and geosite.dat..."
+    # Chocolate4U/Iran-v2ray-rules has: geosite:category-ir, geosite:ir,
+    # geosite:category-ads-all, geoip:ir — required for ad-block + IR bypass
+    IRAN_RULES="https://github.com/Chocolate4U/Iran-v2ray-rules/releases/latest/download"
+    wget -q "$IRAN_RULES/geoip.dat"   -O "$XRAY_DIR/geoip.dat"   || log_warn "geoip.dat download failed"
+    wget -q "$IRAN_RULES/geosite.dat" -O "$XRAY_DIR/geosite.dat" || log_warn "geosite.dat download failed"
+    # Also copy to share dir (Xray checks both locations)
+    mkdir -p /usr/local/share/xray
+    cp -f "$XRAY_DIR/geoip.dat"   /usr/local/share/xray/geoip.dat   2>/dev/null || true
+    cp -f "$XRAY_DIR/geosite.dat" /usr/local/share/xray/geosite.dat 2>/dev/null || true
 
     log_info "Xray installed: $($XRAY_DIR/xray version | head -1)"
 }
@@ -233,6 +238,7 @@ download_panel_files() {
         log_info "Using local files..."
         cp "$SCRIPT_DIR/masterpanel.py" "$PANEL_DIR/masterpanel.py"
         cp "$SCRIPT_DIR/index.html" "$PANEL_DIR/templates/index.html"
+        [[ -f "$SCRIPT_DIR/bot.py" ]] && cp "$SCRIPT_DIR/bot.py" "$PANEL_DIR/bot.py"
         log_info "Local files installed."
     else
         # Download from GitHub
@@ -248,7 +254,11 @@ download_panel_files() {
                 exit 1
             fi
         done
+        # Bot is optional
+        wget -q "$GITHUB_RAW/bot.py" -O "$PANEL_DIR/bot.py" && log_info "Downloaded: bot.py" || log_warn "bot.py not found (optional)"
     fi
+    # Install bot dependency
+    "$PANEL_DIR/venv/bin/pip" install -q requests 2>/dev/null || true
 }
 
 setup_firewall() {
@@ -263,7 +273,7 @@ setup_firewall() {
                 10086/tcp 10087/tcp \
                 8388/tcp 8389/tcp 8390/tcp 8392/tcp \
                 8401/tcp 8402/tcp 8403/tcp 8404/tcp \
-                8500/udp 8600/udp 51820/udp; do
+                8500/udp 8600/udp 51820/udp 8081/tcp; do
         ufw allow "$PORT" > /dev/null 2>&1 || true
     done
     ufw --force enable > /dev/null 2>&1 || true
@@ -288,6 +298,26 @@ Restart=always
 RestartSec=5
 StandardOutput=append:$PANEL_DIR/logs/panel.log
 StandardError=append:$PANEL_DIR/logs/panel.log
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+    # MasterBot (Telegram) — enabled later when token is set via panel
+    cat > /etc/systemd/system/masterbot.service << SVC
+[Unit]
+Description=MasterPanel Telegram Bot
+After=network.target masterpanel.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$PANEL_DIR
+ExecStart=$PANEL_DIR/venv/bin/python3 $PANEL_DIR/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:$PANEL_DIR/logs/bot.log
+StandardError=append:$PANEL_DIR/logs/bot.log
 
 [Install]
 WantedBy=multi-user.target
@@ -357,12 +387,65 @@ SVC
     fi
 }
 
+setup_nginx_sub() {
+    log_step "Setting up HTTPS subscription via Nginx..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx 2>/dev/null || {
+        log_warn "Nginx install failed — subscription will be HTTP only"
+        return
+    }
+
+    CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+
+    # Nginx serves HTTPS on 8443 and proxies /sub/ to the panel (port 9090).
+    # Note: 8443 is also used by Xray for some inbounds, so we use 2087... no —
+    # use a dedicated subscription port that nothing else uses: 8443 conflicts,
+    # so use port 8081 over TLS for subscription.
+    SUB_PORT=8081
+    cat > /etc/nginx/sites-available/masterpanel-sub << NGINX
+server {
+    listen ${SUB_PORT} ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate     ${CERT};
+    ssl_certificate_key ${KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location /sub/ {
+        proxy_pass http://127.0.0.1:9090;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX
+
+    ln -sf /etc/nginx/sites-available/masterpanel-sub /etc/nginx/sites-enabled/masterpanel-sub
+    # Remove default site to avoid port conflicts
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+    ufw allow ${SUB_PORT}/tcp > /dev/null 2>&1 || true
+
+    if nginx -t 2>/dev/null; then
+        systemctl enable nginx > /dev/null 2>&1
+        systemctl restart nginx
+        echo "SUB_PORT=${SUB_PORT}" >> "$PANEL_DIR/panel.conf"
+        log_info "HTTPS subscription ready on port ${SUB_PORT}"
+    else
+        log_warn "Nginx config test failed — check manually"
+    fi
+}
+
 setup_ssl_renewal() {
-    log_step "SSL auto-renewal..."
-    (crontab -l 2>/dev/null | grep -v certbot
+    log_step "SSL auto-renewal + traffic enforcement..."
+    (crontab -l 2>/dev/null | grep -v certbot | grep -v "api/enforce"
     echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl restart xray 2>/dev/null; systemctl restart tuic-server 2>/dev/null; systemctl restart hysteria2 2>/dev/null; systemctl restart masterpanel'"
+    echo "*/10 * * * * curl -s -X POST http://127.0.0.1:9090/api/enforce -H 'X-Internal: 1' > /dev/null 2>&1"
     ) | crontab -
-    log_info "Auto-renewal configured."
+    log_info "Auto-renewal + enforcement configured."
 }
 
 print_summary() {
@@ -411,6 +494,7 @@ obtain_ssl
 setup_panel
 download_panel_files
 setup_firewall
+setup_nginx_sub
 create_services
 setup_ssl_renewal
 print_summary
