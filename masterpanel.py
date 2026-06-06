@@ -39,6 +39,9 @@ PANEL_PASS   = CFG.get("PANEL_PASS", "admin123")
 PANEL_PORT   = int(CFG.get("PANEL_PORT", 9090))
 CERT_PATH    = CFG.get("CERT_PATH", "")
 KEY_PATH     = CFG.get("KEY_PATH", "")
+PANEL_DOMAIN = CFG.get("PANEL_DOMAIN", DOMAIN)
+PANEL_CERT_PATH = CFG.get("PANEL_CERT_PATH", "")
+PANEL_KEY_PATH  = CFG.get("PANEL_KEY_PATH", "")
 XRAY_CFG_DIR = Path(CFG.get("XRAY_CONFIG_DIR", "/usr/local/etc/xray"))
 XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 SUB_PORT     = CFG.get("SUB_PORT", "8081")
@@ -843,7 +846,7 @@ def api_status():
     ip = get_server_ip()
     return jsonify({
         "xray": xs, "domain": DOMAIN, "server_ip": ip,
-        "panel_url": f"https://{ip}:{PANEL_PORT}",
+        "panel_url": f"https://{PANEL_DOMAIN}:{PANEL_PORT}",
         "config_count": len(configs), "proto_counts": proto_counts,
         "ssl_valid": Path(CERT_PATH).exists() if CERT_PATH else False,
         "uptime": get_uptime(),
@@ -1388,7 +1391,7 @@ def api_user_generate(uid):
 
     # Build subscription URLs to return alongside the configs
     https_sub = f"https://{DOMAIN}:{SUB_PORT}/sub/{user['sub_token']}"
-    http_sub  = f"https://{ip}:{PANEL_PORT}/sub/{user['sub_token']}"
+    http_sub  = f"https://{PANEL_DOMAIN}:{PANEL_PORT}/sub/{user['sub_token']}"
     return jsonify({"ok":True,"count":len(user['configs']),"configs":user['configs'],
                     "sub_https":https_sub,"sub_http":http_sub,
                     "sub_token":user['sub_token']})
@@ -1421,7 +1424,7 @@ def api_user_suburl(uid):
         u["sub_token"] = new_password(24)
         save_users(users)
     https_url = f"https://{DOMAIN}:{SUB_PORT}/sub/{u['sub_token']}"
-    http_url  = f"https://{get_server_ip()}:{PANEL_PORT}/sub/{u['sub_token']}"
+    http_url  = f"https://{PANEL_DOMAIN}:{PANEL_PORT}/sub/{u['sub_token']}"
     return jsonify({"ok": True, "https": https_url, "http": http_url})
 
 # ── Live System Monitoring ─────────────────────────────────────
@@ -1752,18 +1755,25 @@ def api_update_check():
 
 # ── Run ───────────────────────────────────────────────────────
 def _build_ssl_context():
-    """Serve the panel over real HTTPS using the Let's Encrypt cert when
-    available. Falls back to a self-signed cert (generated once) so the panel
-    is ALWAYS HTTPS — this is required for navigator.clipboard and stable
-    sessions when opening the panel by IP. Returns an ssl.SSLContext or None."""
+    """Serve the panel over real HTTPS. Priority:
+      1) PANEL_CERT_PATH — real Let's Encrypt cert for the panel subdomain
+         (open the panel at https://PANEL_DOMAIN:PORT with NO browser warning).
+      2) CERT_PATH — the VPN domain cert (works if panel domain == VPN domain).
+      3) Self-signed fallback so the panel is always HTTPS.
+    Returns an ssl.SSLContext or None."""
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        # 1) Prefer the real domain cert if it exists on disk
+        # 1) Real cert for the dedicated panel subdomain
+        if PANEL_CERT_PATH and PANEL_KEY_PATH and Path(PANEL_CERT_PATH).exists() and Path(PANEL_KEY_PATH).exists():
+            ctx.load_cert_chain(PANEL_CERT_PATH, PANEL_KEY_PATH)
+            print(f"[MasterPanel] HTTPS using panel cert ({PANEL_DOMAIN}): {PANEL_CERT_PATH}")
+            return ctx
+        # 2) Real cert for the main VPN domain
         if CERT_PATH and KEY_PATH and Path(CERT_PATH).exists() and Path(KEY_PATH).exists():
             ctx.load_cert_chain(CERT_PATH, KEY_PATH)
             print(f"[MasterPanel] HTTPS using domain cert: {CERT_PATH}")
             return ctx
-        # 2) Otherwise generate / reuse a self-signed cert for the panel
+        # 3) Self-signed fallback
         sc = PANEL_DIR / "panel_cert.pem"
         sk = PANEL_DIR / "panel_key.pem"
         if not (sc.exists() and sk.exists()):
@@ -1777,7 +1787,7 @@ def _build_ssl_context():
             sc.chmod(0o644); sk.chmod(0o600)
         if sc.exists() and sk.exists():
             ctx.load_cert_chain(str(sc), str(sk))
-            print("[MasterPanel] HTTPS using self-signed panel cert")
+            print("[MasterPanel] HTTPS using self-signed panel cert (browser warning expected)")
             return ctx
     except Exception as e:
         print(f"[MasterPanel] SSL setup failed, falling back to HTTP: {e}")

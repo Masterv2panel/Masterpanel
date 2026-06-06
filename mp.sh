@@ -182,9 +182,47 @@ cmd_show_links() {
 
 cmd_renew_ssl() {
     load_conf
-    echo -e "${BLUE}[*]${NC} Renewing SSL for $DOMAIN..."
+    PANEL_DOMAIN="${PANEL_DOMAIN:-$DOMAIN}"
+    echo -e "${BLUE}[*]${NC} Renewing / issuing SSL..."
     systemctl stop masterpanel 2>/dev/null || true
-    certbot renew --force-renewal -d "$DOMAIN" 2>&1 | tail -5
+    fuser -k 80/tcp 2>/dev/null || true
+    sleep 1
+
+    # VPN domain cert (used by Xray/TUIC/HY2)
+    if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
+        certbot renew --force-renewal --cert-name "$DOMAIN" 2>&1 | tail -3
+    else
+        certbot certonly --standalone --non-interactive --agree-tos \
+            --register-unsafely-without-email -d "$DOMAIN" 2>&1 | tail -3
+    fi
+
+    # Panel domain cert (real HTTPS for the panel, no browser warning)
+    if [[ "$PANEL_DOMAIN" != "$DOMAIN" ]]; then
+        fuser -k 80/tcp 2>/dev/null || true; sleep 1
+        if [[ -d "/etc/letsencrypt/live/$PANEL_DOMAIN" ]]; then
+            certbot renew --force-renewal --cert-name "$PANEL_DOMAIN" 2>&1 | tail -3
+        else
+            echo -e "${BLUE}[*]${NC} Issuing new cert for panel: $PANEL_DOMAIN"
+            echo -e "${YELLOW}    (make sure '$PANEL_DOMAIN' is DNS-only in Cloudflare)${NC}"
+            certbot certonly --standalone --non-interactive --agree-tos \
+                --register-unsafely-without-email -d "$PANEL_DOMAIN" 2>&1 | tail -3
+        fi
+        PCERT="/etc/letsencrypt/live/$PANEL_DOMAIN/fullchain.pem"
+        PKEY="/etc/letsencrypt/live/$PANEL_DOMAIN/privkey.pem"
+        if [[ -f "$PCERT" ]]; then
+            chmod 644 "$PCERT" "$PKEY" 2>/dev/null || true
+            grep -q '^PANEL_CERT_PATH=' "$CONF_FILE" \
+                && sed -i "s#^PANEL_CERT_PATH=.*#PANEL_CERT_PATH=$PCERT#" "$CONF_FILE" \
+                || echo "PANEL_CERT_PATH=$PCERT" >> "$CONF_FILE"
+            grep -q '^PANEL_KEY_PATH=' "$CONF_FILE" \
+                && sed -i "s#^PANEL_KEY_PATH=.*#PANEL_KEY_PATH=$PKEY#" "$CONF_FILE" \
+                || echo "PANEL_KEY_PATH=$PKEY" >> "$CONF_FILE"
+            echo -e "${GREEN}[✓]${NC} Panel cert ready — open: https://$PANEL_DOMAIN:${PANEL_PORT:-9090}"
+        else
+            echo -e "${RED}[!]${NC} Panel cert failed — check DNS / port 80 / Cloudflare proxy."
+        fi
+    fi
+
     systemctl start masterpanel
     systemctl restart tuic-server 2>/dev/null || true
     systemctl restart hysteria2 2>/dev/null || true

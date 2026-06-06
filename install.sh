@@ -45,10 +45,17 @@ get_user_input() {
     echo -e "${WHITE}=== Configuration ===${NC}"
     echo ""
     while true; do
-        echo -ne "${CYAN}Domain (e.g. vpn.example.com): ${NC}"
+        echo -ne "${CYAN}Domain (for VPN configs, e.g. vpn.example.com): ${NC}"
         read DOMAIN; [[ -n "$DOMAIN" ]] && break
         log_warn "Domain cannot be empty."
     done
+    echo ""
+    echo -e "${WHITE}Panel access:${NC} to open the panel over real HTTPS (no browser"
+    echo -e "warning), use a subdomain set to ${YELLOW}DNS only${NC} (grey cloud) in Cloudflare,"
+    echo -e "pointing straight to this server's IP. Leave blank to reuse the main domain."
+    echo -ne "${CYAN}Panel domain (e.g. panel.example.com) [blank = $DOMAIN]: ${NC}"
+    read PANEL_DOMAIN
+    [[ -z "$PANEL_DOMAIN" ]] && PANEL_DOMAIN="$DOMAIN"
     while true; do
         echo -ne "${CYAN}Admin username (min 4 chars): ${NC}"
         read PANEL_USER; [[ ${#PANEL_USER} -ge 4 ]] && break
@@ -61,9 +68,13 @@ get_user_input() {
         log_warn "Min 8 characters."
     done
     echo ""
-    log_info "Domain : $DOMAIN"
-    log_info "User   : $PANEL_USER"
-    log_info "Port   : $PANEL_PORT"
+    log_info "Domain       : $DOMAIN"
+    log_info "Panel domain : $PANEL_DOMAIN"
+    log_info "User         : $PANEL_USER"
+    log_info "Port         : $PANEL_PORT"
+    echo ""
+    echo -e "${YELLOW}Make sure DNS A records for BOTH '$DOMAIN' and '$PANEL_DOMAIN'"
+    echo -e "point to this server, and are 'DNS only' (grey cloud) during install.${NC}"
     echo ""
     echo -ne "${YELLOW}Continue? [y/N]: ${NC}"; read CONFIRM
     [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && { log_warn "Cancelled."; exit 0; }
@@ -183,14 +194,12 @@ install_hysteria2() {
 }
 
 obtain_ssl() {
-    log_step "Obtaining SSL for $DOMAIN..."
     systemctl stop masterpanel 2>/dev/null || true
     fuser -k 80/tcp 2>/dev/null || true
     sleep 1
 
-    # NOTE: if the domain is proxied through Cloudflare (orange cloud), the
-    # HTTP-01 challenge on port 80 may fail. Set the DNS record to "DNS only"
-    # (grey cloud) during install, then re-enable the proxy afterwards.
+    # ── Cert for the VPN domain (used by Xray/TUIC/HY2 inbounds) ──
+    log_step "Obtaining SSL for VPN domain: $DOMAIN..."
     certbot certonly --standalone \
         --non-interactive --agree-tos \
         --register-unsafely-without-email \
@@ -198,17 +207,44 @@ obtain_ssl() {
 
     CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
     KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-
-    if [[ ! -f "$CERT_PATH" ]]; then
-        log_warn "Let's Encrypt failed (Cloudflare proxy or DNS/port 80)."
-        log_warn "Continuing — panel will use a self-signed HTTPS cert."
-        log_warn "You can issue a real cert later: bash /opt/masterpanel/mp.sh renew-ssl"
+    if [[ -f "$CERT_PATH" ]]; then
+        chmod 644 "$CERT_PATH" "$KEY_PATH" 2>/dev/null || true
+        SSL_OK=1
+        log_info "VPN domain SSL obtained."
+    else
+        log_warn "VPN domain SSL failed (Cloudflare proxy or DNS/port 80)."
         SSL_OK=0
-        return 0
     fi
-    chmod 644 "$CERT_PATH" "$KEY_PATH" 2>/dev/null || true
-    SSL_OK=1
-    log_info "SSL obtained."
+
+    # ── Cert for the PANEL domain (real HTTPS, no browser warning) ──
+    if [[ "$PANEL_DOMAIN" == "$DOMAIN" ]]; then
+        # Same hostname — reuse the cert we just got
+        PANEL_CERT_PATH="$CERT_PATH"
+        PANEL_KEY_PATH="$KEY_PATH"
+        PANEL_SSL_OK="$SSL_OK"
+    else
+        log_step "Obtaining SSL for PANEL domain: $PANEL_DOMAIN..."
+        fuser -k 80/tcp 2>/dev/null || true
+        sleep 1
+        certbot certonly --standalone \
+            --non-interactive --agree-tos \
+            --register-unsafely-without-email \
+            -d "$PANEL_DOMAIN" 2>&1 | tail -5
+        PANEL_CERT_PATH="/etc/letsencrypt/live/$PANEL_DOMAIN/fullchain.pem"
+        PANEL_KEY_PATH="/etc/letsencrypt/live/$PANEL_DOMAIN/privkey.pem"
+        if [[ -f "$PANEL_CERT_PATH" ]]; then
+            chmod 644 "$PANEL_CERT_PATH" "$PANEL_KEY_PATH" 2>/dev/null || true
+            PANEL_SSL_OK=1
+            log_info "Panel domain SSL obtained — open: https://$PANEL_DOMAIN:$PANEL_PORT"
+        else
+            log_warn "Panel domain SSL failed. Panel will use self-signed cert."
+            log_warn "Fix: set '$PANEL_DOMAIN' to DNS-only in Cloudflare, then:"
+            log_warn "  bash /opt/masterpanel/mp.sh renew-ssl"
+            PANEL_SSL_OK=0
+            PANEL_CERT_PATH=""
+            PANEL_KEY_PATH=""
+        fi
+    fi
 }
 
 setup_panel() {
@@ -221,11 +257,14 @@ setup_panel() {
 
     cat > "$PANEL_DIR/panel.conf" << CONF
 DOMAIN=$DOMAIN
+PANEL_DOMAIN=$PANEL_DOMAIN
 PANEL_USER=$PANEL_USER
 PANEL_PASS=$PANEL_PASS
 PANEL_PORT=$PANEL_PORT
 CERT_PATH=/etc/letsencrypt/live/$DOMAIN/fullchain.pem
 KEY_PATH=/etc/letsencrypt/live/$DOMAIN/privkey.pem
+PANEL_CERT_PATH=$PANEL_CERT_PATH
+PANEL_KEY_PATH=$PANEL_KEY_PATH
 XRAY_CONFIG_DIR=$XRAY_CONFIG_DIR
 XRAY_BIN=$XRAY_DIR/xray
 CONF
@@ -450,7 +489,7 @@ setup_ssl_renewal() {
     log_step "SSL auto-renewal + traffic enforcement..."
     (crontab -l 2>/dev/null | grep -v certbot | grep -v "api/enforce"
     echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl restart xray 2>/dev/null; systemctl restart tuic-server 2>/dev/null; systemctl restart hysteria2 2>/dev/null; systemctl restart masterpanel'"
-    echo "*/10 * * * * curl -s -X POST http://127.0.0.1:9090/api/enforce -H 'X-Internal: 1' > /dev/null 2>&1"
+    echo "*/10 * * * * curl -sk -X POST https://127.0.0.1:9090/api/enforce -H 'X-Internal: 1' > /dev/null 2>&1"
     ) | crontab -
     log_info "Auto-renewal + enforcement configured."
 }
@@ -462,19 +501,22 @@ print_summary() {
 
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║      MasterPanel v4.0 — Installed! ✓           ║${NC}"
+    echo -e "${GREEN}║      MasterPanel v4.7 — Installed! ✓           ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${WHITE}Panel URL :${NC} ${CYAN}https://$SERVER_IP:$PANEL_PORT${NC}"
-    echo -e "  ${WHITE}Username  :${NC} ${CYAN}$PANEL_USER${NC}"
-    echo -e "  ${WHITE}Domain    :${NC} ${CYAN}$DOMAIN${NC}"
-    echo ""
-    echo -e "  ${YELLOW}⚠  Open the panel by IP over HTTPS (NOT the domain).${NC}"
-    echo -e "  ${YELLOW}   Cloudflare does not proxy port 9090, so the domain won't work here.${NC}"
-    echo -e "  ${GREEN}→  https://$SERVER_IP:$PANEL_PORT${NC}"
-    if [[ "${SSL_OK:-0}" != "1" ]]; then
-        echo -e "  ${YELLOW}   (Panel uses a self-signed cert — accept the browser warning once.)${NC}"
+    if [[ "${PANEL_SSL_OK:-0}" == "1" ]]; then
+        echo -e "  ${WHITE}Panel URL :${NC} ${GREEN}https://$PANEL_DOMAIN:$PANEL_PORT${NC}  ${WHITE}(real cert, no warning)${NC}"
+    else
+        echo -e "  ${WHITE}Panel URL :${NC} ${CYAN}https://$SERVER_IP:$PANEL_PORT${NC}"
+        echo -e "  ${YELLOW}   Panel cert is self-signed — accept the browser warning once.${NC}"
+        echo -e "  ${YELLOW}   For a real cert: set '$PANEL_DOMAIN' to DNS-only in Cloudflare, then${NC}"
+        echo -e "  ${YELLOW}   run: bash /opt/masterpanel/mp.sh renew-ssl${NC}"
     fi
+    echo -e "  ${WHITE}Username  :${NC} ${CYAN}$PANEL_USER${NC}"
+    echo -e "  ${WHITE}VPN Domain:${NC} ${CYAN}$DOMAIN${NC}"
+    echo ""
+    echo -e "  ${YELLOW}⚠  The panel domain '$PANEL_DOMAIN' must stay DNS-only (grey cloud).${NC}"
+    echo -e "  ${YELLOW}   Cloudflare does not proxy port $PANEL_PORT.${NC}"
     echo ""
     echo -e "  ${WHITE}Installed:${NC}"
     echo -ne "  Xray      : "; $XRAY_DIR/xray version 2>/dev/null | head -1 || echo "OK"
