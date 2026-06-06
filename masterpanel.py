@@ -1,51 +1,36 @@
 #!/usr/bin/env python3
 """
-MasterPanel - Xray Multi-User Management Panel
-Backend Server v3.0  (Advanced Edition)
-
-Upgraded from v2.0:
-  • SQLite-backed multi-user management (users.db)
-  • Dynamic per-user Xray client generation (conflict-free port map)
-  • Subscription endpoint  /sub/<uuid>  (Base64, with remaining-traffic profile)
-  • XHTTP protocol + Cloudflare Clean-IP injection for CDN configs
-  • Background traffic monitor via Xray Stats API  (auto disable on limit/expiry)
-  • Telegram bot  (DB backups + limit/expiry notifications)
-  • One-click GitHub auto-update (keeps users.db intact)
-
-Protocols: VLESS (WS / XHTTP / gRPC / TCP / REALITY-Vision), VMess (WS / XHTTP / TCP),
-           Trojan (WS / TCP), Shadowsocks-2022, TUIC v5, Hysteria2, WireGuard (note)
+MasterPanel - Xray Auto Protocol Configurator
+Backend Server v2.0
+Protocols: VLESS, VMess, Trojan, Shadowsocks, TUIC, Hysteria2, ShadowTLS, NaiveProxy, WireGuard
 """
 
-import os, json, uuid, subprocess, socket, ssl, time, base64, secrets, string
-import sqlite3, threading, shutil
-import urllib.parse, urllib.request
-from urllib.parse import quote
-from functools import wraps
-from datetime import datetime, date, timedelta
+import os, json, uuid, subprocess, socket, ssl, time, base64, urllib.parse, secrets, string
+from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+from flask import Flask, request, jsonify, session, redirect, url_for, Response
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
+_SF = Path("/opt/masterpanel/.secret_key")
+Path("/opt/masterpanel").mkdir(exist_ok=True)
+if _SF.exists():
+    app.secret_key = _SF.read_bytes()
+else:
+    _k = secrets.token_bytes(32); _SF.write_bytes(_k); _SF.chmod(0o600)
+    app.secret_key = _k
 
-# ══════════════════════════════════════════════════════════════════
-#  Configuration  (panel.conf — written by install.sh)
-# ══════════════════════════════════════════════════════════════════
-PANEL_DIR = Path("/opt/masterpanel")
-CONF_FILE = PANEL_DIR / "panel.conf"
-DB_FILE   = PANEL_DIR / "users.db"
-LOGS_DIR  = PANEL_DIR / "logs"
-CONFIGS_DIR = PANEL_DIR / "configs"
-
+# ── Load config ───────────────────────────────────────────────
+PANEL_DIR    = Path("/opt/masterpanel")
+CONF_FILE    = PANEL_DIR / "panel.conf"
 
 def load_conf():
     conf = {}
     if CONF_FILE.exists():
         for line in CONF_FILE.read_text().splitlines():
-            if "=" in line and not line.strip().startswith("#"):
+            if "=" in line:
                 k, v = line.split("=", 1)
                 conf[k.strip()] = v.strip()
     return conf
-
 
 CFG          = load_conf()
 DOMAIN       = CFG.get("DOMAIN", "example.com")
@@ -56,313 +41,28 @@ CERT_PATH    = CFG.get("CERT_PATH", "")
 KEY_PATH     = CFG.get("KEY_PATH", "")
 XRAY_CFG_DIR = Path(CFG.get("XRAY_CONFIG_DIR", "/usr/local/etc/xray"))
 XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
-TUIC_BIN     = CFG.get("TUIC_BIN", "/usr/local/bin/tuic-server")
-HY2_BIN      = CFG.get("HY2_BIN", "/usr/local/bin/hysteria")
+CONFIGS_DIR  = PANEL_DIR / "configs"
+CONFIGS_DIR.mkdir(exist_ok=True)
+XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
+CURRENT_VERSION = "4.1.0"
+GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
-for d in (PANEL_DIR, CONFIGS_DIR, LOGS_DIR):
-    try:
-        d.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-try:
-    XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-except Exception:
-    pass
+def serve_html():
+    p = PANEL_DIR / "templates" / "index.html"
+    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type":"text/html; charset=utf-8"}
+    return "<h1>index.html not found</h1>", 404
 
-# ── Constants ─────────────────────────────────────────────────────
-GB             = 1024 ** 3
-XRAY_API_PORT  = 10085                       # loopback Xray gRPC API
-SS_METHOD      = "2022-blake3-aes-256-gcm"
-HY2_PORT       = 443                         # UDP
-TUIC_PORT      = 2053                        # UDP
-WG_PORT        = 51820                       # note only
-REALITY_DEST   = "www.microsoft.com:443"
-REALITY_SNI    = "www.microsoft.com"
-
-_apply_lock = threading.Lock()
-
-
-def log(msg):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Database layer
-# ══════════════════════════════════════════════════════════════════
-def get_conn():
-    conn = sqlite3.connect(str(DB_FILE), timeout=15)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-            username           TEXT UNIQUE NOT NULL,
-            uuid               TEXT UNIQUE NOT NULL,
-            password           TEXT NOT NULL,
-            ss_psk             TEXT NOT NULL,
-            status             TEXT NOT NULL DEFAULT 'active',
-            traffic_limit_gb   REAL NOT NULL DEFAULT 0,
-            used_traffic_bytes INTEGER NOT NULL DEFAULT 0,
-            expire_date        TEXT,
-            note               TEXT,
-            created_at         TEXT
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    conn.commit()
-    # Seed default settings (only if missing)
-    defaults = {
-        "clean_ip":           "",
-        "telegram_bot_token": "",
-        "telegram_admin_chat": "",
-        "github_repo":        "Masterv2panel/Masterpanel",
-        "github_branch":      "main",
-        "monitor_interval":   "60",
-        "backup_hour":        "6",
-        "sub_url_base":       "",
-    }
-    for k, v in defaults.items():
-        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
-    conn.commit()
-    conn.close()
-
-
-# ── Settings helpers ──────────────────────────────────────────────
-def get_setting(key, default=""):
-    try:
-        conn = get_conn()
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        conn.close()
-        if row is not None and row["value"] is not None:
-            return row["value"]
-    except Exception as e:
-        log(f"get_setting error: {e}")
-    return default
-
-
-def set_setting(key, value):
-    try:
-        conn = get_conn()
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, str(value)))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        log(f"set_setting error: {e}")
-
-
-# ── User helpers ──────────────────────────────────────────────────
-def get_all_users():
-    try:
-        conn = get_conn()
-        rows = conn.execute("SELECT * FROM users ORDER BY id ASC").fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        log(f"get_all_users error: {e}")
-        return []
-
-
-def get_user(uid):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_user_by_uuid(token):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE uuid=?", (token,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_user_by_name(name):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def create_user(username, traffic_limit_gb=0, expire_date=None, note="",
-                user_uuid=None, password=None, ss_psk=None, status="active"):
-    user_uuid = user_uuid or new_uuid()
-    password  = password  or new_password(20)
-    ss_psk    = ss_psk    or new_ss_psk()
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO users (username, uuid, password, ss_psk, status, "
-        "traffic_limit_gb, used_traffic_bytes, expire_date, note, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
-        (username, user_uuid, password, ss_psk, status,
-         float(traffic_limit_gb or 0), expire_date, note, now_iso()))
-    conn.commit()
-    uid = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()["id"]
-    conn.close()
-    return uid
-
-
-def update_user(uid, **fields):
-    if not fields:
-        return
-    cols = ", ".join(f"{k}=?" for k in fields)
-    vals = list(fields.values()) + [uid]
-    conn = get_conn()
-    conn.execute(f"UPDATE users SET {cols} WHERE id=?", vals)
-    conn.commit()
-    conn.close()
-
-
-def delete_user(uid):
-    conn = get_conn()
-    conn.execute("DELETE FROM users WHERE id=?", (uid,))
-    conn.commit()
-    conn.close()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Date / format helpers
-# ══════════════════════════════════════════════════════════════════
-def now_iso():
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
-
-
-def remaining_days(expire_date):
-    """None = unlimited. int = days remaining (negative if past)."""
-    if not expire_date:
-        return None
-    try:
-        d = datetime.strptime(expire_date[:10], "%Y-%m-%d").date()
-        return (d - date.today()).days
-    except Exception:
-        return None
-
-
-def is_expired(expire_date):
-    rd = remaining_days(expire_date)
-    return rd is not None and rd < 0
-
-
-def expire_unix(expire_date):
-    """Unix timestamp at end of expiry day (0 = unlimited)."""
-    if not expire_date:
-        return 0
-    try:
-        d = datetime.strptime(expire_date[:10], "%Y-%m-%d")
-        d = d.replace(hour=23, minute=59, second=59)
-        return int(d.timestamp())
-    except Exception:
-        return 0
-
-
-def parse_expire(data):
-    """Accept either expire_date 'YYYY-MM-DD' or expire_days int (0 = unlimited)."""
-    if data.get("expire_date"):
-        return str(data["expire_date"])[:10]
-    days = data.get("expire_days")
-    if days in (None, "", "0", 0):
-        return None
-    try:
-        days = int(days)
-        if days <= 0:
-            return None
-        return (date.today() + timedelta(days=days)).strftime("%Y-%m-%d")
-    except Exception:
-        return None
-
-
-def human_bytes(n):
-    try:
-        n = float(n)
-    except Exception:
-        return "0 B"
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(n) < 1024.0 or unit == "TB":
-            return f"{n:.2f} {unit}" if unit != "B" else f"{int(n)} B"
-        n /= 1024.0
-    return f"{n:.2f} TB"
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Crypto / credential helpers
-# ══════════════════════════════════════════════════════════════════
+# ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
     return str(uuid.uuid4())
 
-
-def new_password(length=20):
+def new_password(length=16):
     chars = string.ascii_letters + string.digits
-    return "".join(secrets.choice(chars) for _ in range(length))
-
-
-def new_ss_psk():
-    """32-byte base64 PSK for 2022-blake3-aes-256-gcm."""
-    return base64.b64encode(secrets.token_bytes(32)).decode()
-
-
-def gen_reality_keys():
-    """Generate one x25519 keypair via the xray binary."""
-    try:
-        r = subprocess.run([XRAY_BIN, "x25519"], capture_output=True, text=True, timeout=5)
-        priv = pub = ""
-        for line in r.stdout.strip().splitlines():
-            low = line.lower()
-            if "private" in low:
-                priv = line.split(":")[-1].strip()
-            elif "public" in low:
-                pub = line.split(":")[-1].strip()
-        return priv, pub
-    except Exception as e:
-        log(f"gen_reality_keys error: {e}")
-        return "", ""
-
-
-def ensure_server_secrets():
-    """Lazily create + persist shared server secrets. Returns a dict."""
-    priv = get_setting("reality_priv")
-    pub  = get_setting("reality_pub")
-    if not priv or not pub:
-        priv, pub = gen_reality_keys()
-        if priv:
-            set_setting("reality_priv", priv)
-        if pub:
-            set_setting("reality_pub", pub)
-
-    sid = get_setting("reality_sid")
-    if not sid:
-        sid = secrets.token_hex(4)
-        set_setting("reality_sid", sid)
-
-    ss_server = get_setting("ss_server_psk")
-    if not ss_server:
-        ss_server = new_ss_psk()
-        set_setting("ss_server_psk", ss_server)
-
-    return {
-        "reality_priv": priv,
-        "reality_pub":  pub,
-        "reality_sid":  sid,
-        "ss_server_psk": ss_server,
-    }
-
-
-# ── Server IP (forces IPv4) ───────────────────────────────────────
-_server_ip_cache = {"ip": None}
-
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
 def get_server_ip():
+    """Always return IPv4 address."""
+    # Method 1: UDP trick (forces IPv4 route)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -370,618 +70,621 @@ def get_server_ip():
         s.close()
         if ip and not ip.startswith("127.") and ":" not in ip:
             return ip
-    except Exception:
+    except:
         pass
-    for api in ("https://api4.ipify.org", "https://ipv4.icanhazip.com", "https://v4.ident.me"):
+    # Method 2: external IPv4-only API
+    for api in [
+        "https://api4.ipify.org",
+        "https://ipv4.icanhazip.com",
+        "https://v4.ident.me",
+    ]:
         try:
+            import urllib.request
             req = urllib.request.Request(api, headers={"User-Agent": "curl/7.0"})
             with urllib.request.urlopen(req, timeout=4) as r:
                 ip = r.read().decode().strip()
                 if ip and ":" not in ip and not ip.startswith("127."):
                     return ip
-        except Exception:
+        except:
             continue
+    # Method 3: hostname resolution (prefer A record)
     try:
-        for r in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+        results = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+        for r in results:
             ip = r[4][0]
             if not ip.startswith("127."):
                 return ip
-    except Exception:
+    except:
         pass
     return "0.0.0.0"
 
-
-def server_ip():
-    if not _server_ip_cache["ip"]:
-        _server_ip_cache["ip"] = get_server_ip()
-    return _server_ip_cache["ip"]
-
+def get_reality_keys():
+    try:
+        result = subprocess.run([XRAY_BIN, "x25519"], capture_output=True, text=True, timeout=5)
+        lines = result.stdout.strip().splitlines()
+        priv = lines[0].split(": ")[-1] if lines else ""
+        pub  = lines[1].split(": ")[-1] if len(lines) > 1 else ""
+        return priv, pub
+    except:
+        return "", ""
 
 def get_uptime():
     try:
         with open("/proc/uptime") as f:
             secs = float(f.read().split()[0])
-        h = int(secs // 3600)
-        m = int((secs % 3600) // 60)
+        h = int(secs // 3600); m = int((secs % 3600) // 60)
         return f"{h}h {m}m"
-    except Exception:
+    except:
         return "N/A"
 
-
-# ══════════════════════════════════════════════════════════════════
-#  Port map / config templates
-#  Each template defines ONE inbound shared by all users.
-#  conn:  cdn  -> behind Cloudflare (address = clean_ip or DOMAIN, TLS, CF port)
-#         direct -> straight to server IP
-#  net:   ws | xhttp | grpc | tcp
-#  sec:   tls | reality | none
-# ══════════════════════════════════════════════════════════════════
-TEMPLATES = [
-    # ── CDN (Cloudflare) — TLS only, CF-supported HTTPS ports ──────
-    {"key": "vl-ws",   "label": "VLESS-WS-CDN",     "proto": "vless",  "net": "ws",    "sec": "tls", "port": 443,  "conn": "cdn", "path": "/vl-ws"},
-    {"key": "vl-xh",   "label": "VLESS-XHTTP-CDN",  "proto": "vless",  "net": "xhttp", "sec": "tls", "port": 8443, "conn": "cdn", "path": "/vl-xh"},
-    {"key": "vl-grpc", "label": "VLESS-gRPC-CDN",   "proto": "vless",  "net": "grpc",  "sec": "tls", "port": 2053, "conn": "cdn", "service": "vl-grpc"},
-    {"key": "vm-ws",   "label": "VMESS-WS-CDN",     "proto": "vmess",  "net": "ws",    "sec": "tls", "port": 2083, "conn": "cdn", "path": "/vm-ws"},
-    {"key": "vm-xh",   "label": "VMESS-XHTTP-CDN",  "proto": "vmess",  "net": "xhttp", "sec": "tls", "port": 2087, "conn": "cdn", "path": "/vm-xh"},
-    {"key": "tr-ws",   "label": "TROJAN-WS-CDN",    "proto": "trojan", "net": "ws",    "sec": "tls", "port": 2096, "conn": "cdn", "path": "/tr-ws"},
-
-    # ── Direct IP — TCP inbounds on dedicated ports (9443-9449) ────
-    {"key": "vl-reality", "label": "VLESS-REALITY-Vision", "proto": "vless",  "net": "tcp",   "sec": "reality", "port": 9443, "conn": "direct", "flow": "xtls-rprx-vision", "sni": REALITY_SNI, "dest": REALITY_DEST},
-    {"key": "vl-xh-d",    "label": "VLESS-XHTTP-IP",       "proto": "vless",  "net": "xhttp", "sec": "tls",     "port": 9444, "conn": "direct", "path": "/vl-xh"},
-    {"key": "vl-ws-d",    "label": "VLESS-WS-IP",          "proto": "vless",  "net": "ws",    "sec": "tls",     "port": 9445, "conn": "direct", "path": "/vl-ws"},
-    {"key": "vm-ws-d",    "label": "VMESS-WS-IP",          "proto": "vmess",  "net": "ws",    "sec": "tls",     "port": 9446, "conn": "direct", "path": "/vm-ws"},
-    {"key": "tr-tcp-d",   "label": "TROJAN-TCP-IP",        "proto": "trojan", "net": "tcp",   "sec": "tls",     "port": 9447, "conn": "direct"},
-    {"key": "vl-tcp-d",   "label": "VLESS-TCP-IP",         "proto": "vless",  "net": "tcp",   "sec": "tls",     "port": 9448, "conn": "direct"},
-    {"key": "vm-tcp-d",   "label": "VMESS-TCP-IP",         "proto": "vmess",  "net": "tcp",   "sec": "tls",     "port": 9449, "conn": "direct"},
-
-    # ── Shadowsocks 2022 (tcp+udp) — two ports for failover ────────
-    {"key": "ss-1", "label": "Shadowsocks-2022", "proto": "ss", "net": "tcp", "sec": "none", "port": 8388, "conn": "direct"},
-    {"key": "ss-2", "label": "Shadowsocks-2022", "proto": "ss", "net": "tcp", "sec": "none", "port": 8389, "conn": "direct"},
-]
-
-XRAY_TEMPLATES = [t for t in TEMPLATES]   # everything above runs inside Xray
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Share-link builders
-# ══════════════════════════════════════════════════════════════════
-def stream_params(tpl, address, sni, host, sec):
-    """Build the query string shared by VLESS/Trojan share links."""
-    net = tpl["net"]
-    params = {"type": net, "security": sec}
-    if sec in ("tls", "reality"):
-        params["sni"] = sni
-        params["fp"] = "chrome"
-    if sec == "reality":
-        secd = ensure_server_secrets()
-        params["pbk"] = secd["reality_pub"]
-        params["sid"] = secd["reality_sid"]
-    if net == "ws":
-        params["path"] = tpl.get("path", "/")
-        params["host"] = host
-    elif net == "xhttp":
-        params["path"] = tpl.get("path", "/")
-        params["host"] = host
-        params["mode"] = "auto"
-    elif net == "grpc":
-        params["serviceName"] = tpl.get("service", "grpc")
-        params["mode"] = "gun"
-    # tcp: nothing extra
-    parts = []
-    for k, v in params.items():
-        parts.append(f"{k}={quote(str(v), safe='')}")
-    return "&".join(parts)
-
-
-def vless_link(tpl, u, address, sni, host, name):
-    q = stream_params(tpl, address, sni, host, tpl["sec"])
-    if tpl.get("flow"):
-        q += f"&flow={tpl['flow']}"
-    return f"vless://{u['uuid']}@{address}:{tpl['port']}?{q}#{quote(name)}"
-
-
-def trojan_link(tpl, u, address, sni, host, name):
-    q = stream_params(tpl, address, sni, host, tpl["sec"])
-    return f"trojan://{quote(u['password'], safe='')}@{address}:{tpl['port']}?{q}#{quote(name)}"
-
-
-def vmess_link(tpl, u, address, sni, host, name):
-    net = tpl["net"]
-    data = {
-        "v": "2", "ps": name, "add": address, "port": str(tpl["port"]),
-        "id": u["uuid"], "aid": "0", "scy": "auto",
-        "net": net, "type": "none", "host": host,
-        "path": tpl.get("path", "/"),
-        "tls": "tls" if tpl["sec"] == "tls" else "",
-        "sni": sni, "fp": "chrome",
-    }
+# ── Share Link Builders ───────────────────────────────────────
+def vless_link(c):
+    uid    = c.get("id", "")
+    addr   = c.get("address", DOMAIN)
+    port   = c.get("port", 443)
+    net    = c.get("network", "tcp")
+    tls    = c.get("tls", "tls")
+    path   = urllib.parse.quote(c.get("path", "/"), safe="")
+    sni    = c.get("sni", DOMAIN)
+    fp     = c.get("fp", "chrome")
+    name   = urllib.parse.quote(c.get("name", "vless"))
+    flow   = c.get("flow", "")
+    pbk    = c.get("public_key", "")
+    sid    = c.get("short_id", "")
+    params = f"type={net}&security={tls}&sni={sni}&fp={fp}"
+    if net in ("ws", "httpupgrade"):
+        params += f"&path={path}"
     if net == "grpc":
-        data["net"] = "grpc"
-        data["path"] = tpl.get("service", "grpc")
-        data["type"] = "gun"
-    elif net == "xhttp":
-        data["net"] = "xhttp"
-    elif net == "tcp":
-        data["net"] = "tcp"
+        params += f"&serviceName={urllib.parse.quote(c.get('service_name','grpc'))}"
+    if flow:
+        params += f"&flow={flow}"
+    if tls == "reality" and pbk:
+        params += f"&pbk={pbk}&sid={sid}"
+    return f"vless://{uid}@{addr}:{port}?{params}#{name}"
+
+def vmess_link(c):
+    data = {
+        "v":"2", "ps": c.get("name",""),
+        "add": c.get("address", DOMAIN),
+        "port": str(c.get("port", 443)),
+        "id": c.get("id",""), "aid":"0", "scy":"auto",
+        "net": c.get("network","ws"), "type":"none",
+        "host": c.get("sni", DOMAIN),
+        "path": c.get("path","/"),
+        "tls": "tls" if c.get("tls") == "tls" else "",
+        "sni": c.get("sni", DOMAIN),
+        "fp": c.get("fp","chrome"),
+    }
+    if c.get("network") == "grpc":
+        data["path"] = c.get("service_name","grpc")
     return "vmess://" + base64.b64encode(json.dumps(data).encode()).decode()
 
+def trojan_link(c):
+    pw   = c.get("password","")
+    addr = c.get("address", DOMAIN)
+    port = c.get("port", 443)
+    net  = c.get("network","tcp")
+    sni  = c.get("sni", DOMAIN)
+    fp   = c.get("fp","chrome")
+    path = urllib.parse.quote(c.get("path","/"), safe="")
+    name = urllib.parse.quote(c.get("name","trojan"))
+    params = f"type={net}&security=tls&sni={sni}&fp={fp}"
+    if net in ("ws","httpupgrade"):
+        params += f"&path={path}"
+    if net == "grpc":
+        params += f"&serviceName={urllib.parse.quote(c.get('service_name','grpc'))}"
+    return f"trojan://{pw}@{addr}:{port}?{params}#{name}"
 
-def ss_link(tpl, u, address, sec, name):
-    """SS-2022 multi-user URI: ss://b64(method:serverPSK:userPSK)@addr:port#name"""
-    userinfo = base64.b64encode(
-        f"{SS_METHOD}:{sec['ss_server_psk']}:{u['ss_psk']}".encode()).decode()
-    return f"ss://{userinfo}@{address}:{tpl['port']}#{quote(name)}"
+def ss_link(c):
+    method   = c.get("method","chacha20-ietf-poly1305")
+    password = c.get("password","")
+    addr     = c.get("address", DOMAIN)
+    port     = c.get("port", 8388)
+    name     = urllib.parse.quote(c.get("name","ss"))
+    userinfo = base64.b64encode(f"{method}:{password}".encode()).decode()
+    return f"ss://{userinfo}@{addr}:{port}#{name}"
 
+def tuic_link(c):
+    uid  = c.get("id","")
+    pw   = c.get("password","")
+    addr = c.get("address", DOMAIN)
+    port = c.get("port", 443)
+    sni  = c.get("sni", DOMAIN)
+    name = urllib.parse.quote(c.get("name","tuic"))
+    return f"tuic://{uid}:{pw}@{addr}:{port}?sni={sni}&congestion_control=bbr&alpn=h3#{name}"
 
-def tuic_link(u, address, name):
-    return (f"tuic://{u['uuid']}:{quote(u['password'], safe='')}@{address}:{TUIC_PORT}"
-            f"?sni={quote(DOMAIN)}&congestion_control=bbr&alpn=h3&udp_relay_mode=native#{quote(name)}")
+def hysteria2_link(c):
+    pw   = c.get("password","")
+    addr = c.get("address", DOMAIN)
+    port = c.get("port", 443)
+    sni  = c.get("sni", DOMAIN)
+    name = urllib.parse.quote(c.get("name","hy2"))
+    obfs = c.get("obfs","")
+    obfs_pw = c.get("obfs_password","")
+    params = f"sni={sni}"
+    if obfs:
+        params += f"&obfs={obfs}&obfs-password={obfs_pw}"
+    return f"hysteria2://{pw}@{addr}:{port}?{params}#{name}"
 
+# ── Config Generator ──────────────────────────────────────────
+def generate_all_configs():
+    configs  = []
+    ip       = get_server_ip()
+    inbounds = []
 
-def hy2_link(u, address, name):
-    return (f"hysteria2://{quote(u['username'], safe='')}:{quote(u['password'], safe='')}"
-            f"@{address}:{HY2_PORT}?sni={quote(DOMAIN)}#{quote(name)}")
+    # ── Shared credentials ────────────────────────────────────
+    shared = {
+        "vless_id":     new_uuid(),
+        "vmess_id":     new_uuid(),
+        "trojan_pw":    new_password(20),
+        "tuic_id":      new_uuid(),
+        "tuic_pw":      new_password(16),
+        "hy2_pw":       new_password(20),
+        "ss_pw_chacha": new_password(16),
+        "ss_pw_aes":    new_password(16),
+        "ss_pw_stls":   new_password(16),
+        "wg_pk":        new_password(32),
+    }
 
+    # Reality keys (one set per dest)
+    reality_dests = [
+        {"dest": "www.google.com:443",    "sni": "www.google.com",    "fp": "chrome"},
+        {"dest": "www.apple.com:443",     "sni": "www.apple.com",     "fp": "safari"},
+        {"dest": "discord.com:443",       "sni": "discord.com",       "fp": "firefox"},
+        {"dest": "cdn.jsdelivr.net:443",  "sni": "cdn.jsdelivr.net",  "fp": "chrome"},
+    ]
+    for rd in reality_dests:
+        priv, pub = get_reality_keys()
+        rd["priv_key"] = priv
+        rd["pub_key"]  = pub
+        rd["short_id"] = new_uuid()[:8]
 
-# ══════════════════════════════════════════════════════════════════
-#  Build all share links for ONE user
-# ══════════════════════════════════════════════════════════════════
-def build_user_configs(u):
-    sec = ensure_server_secrets()
-    clean = get_setting("clean_ip", "").strip()
-    ip = server_ip()
-    configs = []
+    # CF-supported HTTPS ports
+    cf_ports = [443, 2053, 2083, 2087, 2096, 8443]
 
-    for tpl in TEMPLATES:
-        proto, conn = tpl["proto"], tpl["conn"]
-        if conn == "cdn":
-            address = clean if clean else DOMAIN
-            host    = DOMAIN
-            sni     = DOMAIN
-        else:  # direct
-            address = ip
-            host    = DOMAIN
-            sni     = tpl.get("sni", DOMAIN)
-        name = f"{u['username']}-{tpl['label']}"
+    # ── SNI list — open in Iran ───────────────────────────────
+    sni_list = [
+        {"sni": DOMAIN,                          "fp": "chrome",  "label": "Domain"},
+        {"sni": "www.google.com",                "fp": "chrome",  "label": "Google"},
+        {"sni": "www.apple.com",                 "fp": "safari",  "label": "Apple"},
+        {"sni": "chat.openai.com",               "fp": "chrome",  "label": "ChatGPT"},
+        {"sni": "www.sony.com",                  "fp": "chrome",  "label": "Sony"},
+        {"sni": "www.cloudflare.com",            "fp": "chrome",  "label": "Cloudflare"},
+        {"sni": "cdn.discordapp.com",            "fp": "firefox", "label": "Discord"},
+        {"sni": "www.speedtest.net",             "fp": "chrome",  "label": "Speedtest"},
+        {"sni": "cdn.jsdelivr.net",              "fp": "chrome",  "label": "jsDelivr"},
+        {"sni": "static.cloudflareinsights.com","fp": "chrome",  "label": "CF-Insights"},
+        {"sni": "ajax.cloudflare.com",           "fp": "chrome",  "label": "CF-Ajax"},
+    ]
 
+    # ── Clean Cloudflare IPs ──────────────────────────────────
+    cf_clean_ips = [
+        "104.16.0.1","104.17.0.1","104.18.0.1","104.19.0.1","104.20.0.1",
+        "104.21.0.1","104.22.0.1","172.64.0.1","172.65.0.1","172.66.0.1",
+        "162.159.0.1","162.159.36.1","162.159.46.1",
+        "188.114.96.1","188.114.97.1",
+    ]
+
+    # ═══════════════════════════════════════════════════════════
+    # PORT PLAN — each (protocol, network) gets ONE unique server port.
+    # Client configs and server inbounds MUST use the same port so they
+    # always match. CF/CDN configs (domain + cf_ip) route through the SAME
+    # server inbound; only the client's address differs (clean CF IP or
+    # domain). SNI/fingerprint variety is what evades DPI — not the port.
+    # ═══════════════════════════════════════════════════════════
+    P = {
+        "vless_ws":   443,    # VLESS  WS   (CF main port)
+        "vless_grpc": 2053,   # VLESS  gRPC
+        "vless_hu":   2083,   # VLESS  HTTPUpgrade
+        "vless_tcp":  2087,   # VLESS  TCP+TLS
+        "vmess_ws":   2096,   # VMess  WS
+        "vmess_grpc": 8443,   # VMess  gRPC
+        "vmess_hu":   2095,   # VMess  HTTPUpgrade
+        "trojan_ws":  2052,   # Trojan WS
+        "trojan_grpc":2082,   # Trojan gRPC
+        "trojan_tcp": 2086,   # Trojan TCP+TLS
+        "vless_ntls": 10086,  # VLESS  TCP no-TLS
+        "vmess_ntls": 10087,  # VMess  WS  no-TLS
+    }
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # VLESS — WS (port 443): domain + many SNIs over clean CF IPs
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    configs.append({"name":"VLESS-WS-CF-Domain","protocol":"vless","network":"ws","tls":"tls","port":P["vless_ws"],"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:6]:
+        for cf_ip in cf_clean_ips[:3]:
+            configs.append({"name":f"VLESS-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}","protocol":"vless","network":"ws","tls":"tls","port":P["vless_ws"],"path":"/vless-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":cf_ip,"id":shared["vless_id"],"connection_type":"cf_ip"})
+    # VLESS WS direct-IP
+    configs.append({"name":"VLESS-WS-TLS-IP","protocol":"vless","network":"ws","tls":"tls","port":P["vless_ws"],"path":"/vless-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+
+    # VLESS — gRPC (port 2053): domain + SNIs
+    configs.append({"name":"VLESS-gRPC-Domain","protocol":"vless","network":"grpc","tls":"tls","port":P["vless_grpc"],"service_name":"vless-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:5]:
+        configs.append({"name":f"VLESS-gRPC-{sni_info['label']}","protocol":"vless","network":"grpc","tls":"tls","port":P["vless_grpc"],"service_name":"vless-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+
+    # VLESS — HTTPUpgrade (port 2083)
+    configs.append({"name":"VLESS-HU-Domain","protocol":"vless","network":"httpupgrade","tls":"tls","port":P["vless_hu"],"path":"/vless-hu","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:4]:
+        configs.append({"name":f"VLESS-HU-{sni_info['label']}","protocol":"vless","network":"httpupgrade","tls":"tls","port":P["vless_hu"],"path":"/vless-hu","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vless_id"],"connection_type":"domain"})
+
+    # VLESS — TCP+TLS direct-IP (port 2087)
+    configs.append({"name":"VLESS-TCP-TLS-IP","protocol":"vless","network":"tcp","tls":"tls","port":P["vless_tcp"],"sni":DOMAIN,"fp":"safari","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+
+    # VLESS — TCP no-TLS direct-IP (port 10086)
+    configs.append({"name":"VLESS-TCP-NOTLS-IP","protocol":"vless","network":"tcp","tls":"none","port":P["vless_ntls"],"sni":"","fp":"chrome","address":ip,"id":shared["vless_id"],"connection_type":"direct_ip"})
+
+    # VLESS — REALITY on dedicated ports 4431-4438 (8 SNIs)
+    reality_ports = [4431,4432,4433,4434,4435,4436,4437,4438]
+    for i, rd in enumerate(reality_dests):
+        lbl = rd["sni"].split(".")[-2].upper()
+        configs.append({"name":f"VLESS-REALITY-{lbl}","protocol":"vless","network":"tcp","tls":"reality","port":reality_ports[i],"sni":rd["sni"],"fp":rd["fp"],"flow":"xtls-rprx-vision","address":ip,"id":shared["vless_id"],"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip"})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # VMess — WS (port 2096)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    configs.append({"name":"VMess-WS-CF-Domain","protocol":"vmess","network":"ws","tls":"tls","port":P["vmess_ws"],"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:5]:
+        for cf_ip in cf_clean_ips[3:6]:
+            configs.append({"name":f"VMess-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}","protocol":"vmess","network":"ws","tls":"tls","port":P["vmess_ws"],"path":"/vmess-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":cf_ip,"id":shared["vmess_id"],"connection_type":"cf_ip"})
+    configs.append({"name":"VMess-WS-TLS-IP","protocol":"vmess","network":"ws","tls":"tls","port":P["vmess_ws"],"path":"/vmess-ws","sni":DOMAIN,"fp":"chrome","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
+
+    # VMess — gRPC (port 8443)
+    configs.append({"name":"VMess-gRPC-Domain","protocol":"vmess","network":"grpc","tls":"tls","port":P["vmess_grpc"],"service_name":"vmess-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+    for sni_info in sni_list[1:4]:
+        configs.append({"name":f"VMess-gRPC-{sni_info['label']}","protocol":"vmess","network":"grpc","tls":"tls","port":P["vmess_grpc"],"service_name":"vmess-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+
+    # VMess — HTTPUpgrade (port 2095)
+    configs.append({"name":"VMess-HU-Domain","protocol":"vmess","network":"httpupgrade","tls":"tls","port":P["vmess_hu"],"path":"/vmess-hu","sni":DOMAIN,"fp":"firefox","address":DOMAIN,"id":shared["vmess_id"],"connection_type":"domain"})
+
+    # VMess — WS no-TLS direct-IP (port 10087)
+    configs.append({"name":"VMess-WS-NOTLS-IP","protocol":"vmess","network":"ws","tls":"none","port":P["vmess_ntls"],"path":"/vmess-ws","sni":"","fp":"chrome","address":ip,"id":shared["vmess_id"],"connection_type":"direct_ip"})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Trojan — WS (port 2052)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    configs.append({"name":"Trojan-WS-CF-Domain","protocol":"trojan","network":"ws","tls":"tls","port":P["trojan_ws"],"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    for sni_info in sni_list[1:5]:
+        for cf_ip in cf_clean_ips[6:9]:
+            configs.append({"name":f"Trojan-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}","protocol":"trojan","network":"ws","tls":"tls","port":P["trojan_ws"],"path":"/trojan-ws","sni":sni_info["sni"],"fp":sni_info["fp"],"address":cf_ip,"password":shared["trojan_pw"],"connection_type":"cf_ip"})
+    configs.append({"name":"Trojan-WS-TLS-IP","protocol":"trojan","network":"ws","tls":"tls","port":P["trojan_ws"],"path":"/trojan-ws","sni":DOMAIN,"fp":"chrome","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+
+    # Trojan — gRPC (port 2082)
+    configs.append({"name":"Trojan-gRPC-Domain","protocol":"trojan","network":"grpc","tls":"tls","port":P["trojan_grpc"],"service_name":"trojan-grpc","sni":DOMAIN,"fp":"chrome","address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+    for sni_info in sni_list[1:4]:
+        configs.append({"name":f"Trojan-gRPC-{sni_info['label']}","protocol":"trojan","network":"grpc","tls":"tls","port":P["trojan_grpc"],"service_name":"trojan-grpc","sni":sni_info["sni"],"fp":sni_info["fp"],"address":DOMAIN,"password":shared["trojan_pw"],"connection_type":"domain"})
+
+    # Trojan — TCP+TLS direct-IP (port 2086)
+    configs.append({"name":"Trojan-TCP-TLS-IP","protocol":"trojan","network":"tcp","tls":"tls","port":P["trojan_tcp"],"sni":DOMAIN,"fp":"firefox","address":ip,"password":shared["trojan_pw"],"connection_type":"direct_ip"})
+
+    # Trojan — REALITY on dedicated ports 4451-4454
+    trojan_reality_ports = [4451,4452,4453,4454]
+    for i, rd in enumerate(reality_dests[:4]):
+        lbl = rd["sni"].split(".")[-2].upper()
+        configs.append({"name":f"Trojan-REALITY-{lbl}","protocol":"trojan","network":"tcp","tls":"reality","port":trojan_reality_ports[i],"sni":rd["sni"],"fp":rd["fp"],"address":ip,"password":shared["trojan_pw"],"reality_dest":rd["dest"],"priv_key":rd["priv_key"],"public_key":rd["pub_key"],"short_id":rd["short_id"],"connection_type":"direct_ip"})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Shadowsocks — each method on its own port + ShadowTLS
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ss_pw2 = base64.b64encode(secrets.token_bytes(32)).decode()
+    ss_pw3 = base64.b64encode(secrets.token_bytes(16)).decode()
+    for sv in [
+        {"name":"SS-chacha20-IP",    "method":"chacha20-ietf-poly1305",  "port":8388,"password":shared["ss_pw_chacha"]},
+        {"name":"SS-aes256-IP",      "method":"aes-256-gcm",             "port":8389,"password":shared["ss_pw_aes"]},
+        {"name":"SS-2022-blake3-IP", "method":"2022-blake3-aes-256-gcm", "port":8390,"password":ss_pw2},
+        {"name":"SS-2022-aes128-IP", "method":"2022-blake3-aes-128-gcm", "port":8392,"password":ss_pw3},
+    ]:
+        configs.append({"protocol":"shadowsocks","network":"tcp","tls":"none","address":ip,"connection_type":"direct_ip",**sv})
+    # ShadowTLS — wrapper service, dedicated ports 8401-8404
+    for i, sni_stls in enumerate(["www.apple.com","www.google.com","www.sony.com","cdn.discordapp.com"]):
+        lbl = sni_stls.split(".")[-2].capitalize()
+        configs.append({"name":f"SS-ShadowTLS-{lbl}","protocol":"shadowsocks","network":"tcp","tls":"shadowtls","port":8401+i,"method":"chacha20-ietf-poly1305","password":shared["ss_pw_stls"],"shadowtls_password":new_password(20),"shadowtls_sni":sni_stls,"address":ip,"connection_type":"direct_ip","note":"Requires ShadowTLS wrapper"})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # TUIC v5 — separate server (port 8500). SNI variety, IP + CF.
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    tuic_port = 8500
+    configs.append({"name":"TUIC-v5-IP","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":DOMAIN,"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":ip,"connection_type":"direct_ip","congestion":"bbr"})
+    for sni_info in sni_list[1:5]:
+        configs.append({"name":f"TUIC-v5-{sni_info['label']}","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":sni_info["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":ip,"connection_type":"direct_ip","congestion":"bbr"})
+    for cf_ip in cf_clean_ips[:3]:
+        configs.append({"name":f"TUIC-v5-CFIP-{cf_ip.split('.')[-1]}","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":sni_list[1]["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":cf_ip,"connection_type":"cf_ip","congestion":"bbr"})
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Hysteria2 — separate server (port 8600). SNI variety + Obfs + CF.
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    hy2_port = 8600
+    hy2_obfs_pw = new_password(16)
+    configs.append({"name":"Hysteria2-IP","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":DOMAIN,"password":shared["hy2_pw"],"address":ip,"connection_type":"direct_ip"})
+    for sni_info in sni_list[1:5]:
+        configs.append({"name":f"Hysteria2-{sni_info['label']}","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":sni_info["sni"],"password":shared["hy2_pw"],"address":ip,"connection_type":"direct_ip"})
+    configs.append({"name":"Hysteria2-Obfs","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":DOMAIN,"password":shared["hy2_pw"],"obfs":"salamander","obfs_password":hy2_obfs_pw,"address":ip,"connection_type":"direct_ip"})
+    for cf_ip in cf_clean_ips[:4]:
+        configs.append({"name":f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":sni_list[1]["sni"],"password":shared["hy2_pw"],"address":cf_ip,"connection_type":"cf_ip"})
+
+    # WireGuard — separate (port 51820)
+    configs.append({"name":"WireGuard-IP-51820","protocol":"wireguard","network":"udp","tls":"none","port":51820,"sni":"","private_key":shared["wg_pk"],"address":ip,"connection_type":"direct_ip","note":"Requires WireGuard client config"})
+
+        # Build links + timestamps
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    for cfg in configs:
+        cfg["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        proto = cfg["protocol"]
         if proto == "vless":
-            link = vless_link(tpl, u, address, sni, host, name)
+            cfg["link"] = vless_link(cfg)
         elif proto == "vmess":
-            link = vmess_link(tpl, u, address, sni, host, name)
+            cfg["link"] = vmess_link(cfg)
         elif proto == "trojan":
-            link = trojan_link(tpl, u, address, sni, host, name)
-        elif proto == "ss":
-            link = ss_link(tpl, u, address, sec, name)
+            cfg["link"] = trojan_link(cfg)
+        elif proto == "shadowsocks":
+            cfg["link"] = ss_link(cfg)
+        elif proto == "tuic":
+            cfg["link"] = tuic_link(cfg)
+        elif proto == "hysteria2":
+            cfg["link"] = hysteria2_link(cfg)
         else:
-            continue
+            cfg["link"] = ""
 
-        configs.append({
-            "name": name, "protocol": proto, "network": tpl["net"],
-            "tls": tpl["sec"], "port": tpl["port"], "conn": conn,
-            "address": address, "link": link, "note": "",
-        })
+        # Build Xray inbound (skip TUIC/HY2/WG — they run as separate processes)
+        if proto in ("vless", "vmess", "trojan", "shadowsocks"):
+            ib = build_inbound(cfg)
+            if ib:
+                inbounds.append(ib)
 
-    # ── UDP daemons (separate processes) ──────────────────────────
-    if Path(HY2_BIN).exists():
-        nm = f"{u['username']}-HYSTERIA2"
-        configs.append({
-            "name": nm, "protocol": "hysteria2", "network": "udp", "tls": "tls",
-            "port": HY2_PORT, "conn": "direct", "address": ip,
-            "link": hy2_link(u, ip, nm), "note": "UDP",
-        })
-    if Path(TUIC_BIN).exists():
-        nm = f"{u['username']}-TUIC"
-        configs.append({
-            "name": nm, "protocol": "tuic", "network": "udp", "tls": "tls",
-            "port": TUIC_PORT, "conn": "direct", "address": ip,
-            "link": tuic_link(u, ip, nm), "note": "UDP",
-        })
+    # Save JSON
+    (CONFIGS_DIR / "all_configs.json").write_text(
+        json.dumps(configs, indent=2, ensure_ascii=False))
 
-    # WireGuard placeholder (manual setup — note only)
-    configs.append({
-        "name": f"{u['username']}-WireGuard", "protocol": "wireguard",
-        "network": "udp", "tls": "none", "port": WG_PORT, "conn": "direct",
-        "address": ip, "link": "",
-        "note": "WireGuard نیازمند پیکربندی دستی است (پشتیبانی از لینک اشتراکی ندارد)",
-    })
+    # Export links
+    export_all_links(configs)
+
+    # Write Xray + extra configs
+    write_xray_config(inbounds)
+    write_tuic_config(configs)
+    write_hysteria2_config(configs)
+
     return configs
 
 
-def build_info_node(u):
-    """A leading VLESS node whose NAME shows remaining traffic / days."""
-    rd = remaining_days(u["expire_date"])
-    if rd is None:
-        days_txt = "نامحدود"
-    elif rd < 0:
-        days_txt = "منقضی شده"
-    else:
-        days_txt = f"{rd} روز"
+# ── Xray Inbound Builder ──────────────────────────────────────
+def build_inbound(cfg):
+    proto = cfg["protocol"]
+    port  = cfg["port"]
+    net   = cfg.get("network", "tcp")
+    tls   = cfg.get("tls", "none")
 
-    if u["traffic_limit_gb"] and u["traffic_limit_gb"] > 0:
-        remain = max(0, u["traffic_limit_gb"] * GB - u["used_traffic_bytes"])
-        traf_txt = human_bytes(remain)
-    else:
-        traf_txt = "نامحدود"
-
-    name = f"♻️ {traf_txt} | ⏳ {days_txt}"
-    clean = get_setting("clean_ip", "").strip()
-    address = clean if clean else DOMAIN
-    tpl = {"net": "ws", "sec": "tls", "port": 443, "path": "/vl-ws"}
-    q = stream_params(tpl, address, DOMAIN, DOMAIN, "tls")
-    return f"vless://{u['uuid']}@{address}:443?{q}#{quote(name)}"
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Xray inbound builders
-# ══════════════════════════════════════════════════════════════════
-def clients_for(tpl, users, sec):
-    proto = tpl["proto"]
-    clients = []
-    for u in users:
-        if proto in ("vless",):
-            cl = {"id": u["uuid"], "email": u["username"], "level": 0}
-            if tpl.get("flow"):
-                cl["flow"] = tpl["flow"]
-            clients.append(cl)
-        elif proto == "vmess":
-            clients.append({"id": u["uuid"], "email": u["username"], "level": 0})
-        elif proto == "trojan":
-            clients.append({"password": u["password"], "email": u["username"], "level": 0})
-        elif proto == "ss":
-            clients.append({"password": u["ss_psk"], "email": u["username"]})
-    return clients
-
-
-def tls_settings():
-    return {
-        "serverName": DOMAIN,
-        "alpn": ["h2", "http/1.1"],
-        "certificates": [{"certificateFile": CERT_PATH, "keyFile": KEY_PATH}],
-    }
-
-
-def reality_settings(tpl, sec):
-    return {
-        "show": False,
-        "dest": tpl.get("dest", REALITY_DEST),
-        "xver": 0,
-        "serverNames": [tpl.get("sni", REALITY_SNI)],
-        "privateKey": sec["reality_priv"],
-        "shortIds": [sec["reality_sid"]],
-    }
-
-
-def stream_settings(tpl, sec):
-    net = tpl["net"]
-    st = {"network": net, "security": tpl["sec"]}
-    if tpl["sec"] == "tls":
-        st["tlsSettings"] = tls_settings()
-    elif tpl["sec"] == "reality":
-        st["realitySettings"] = reality_settings(tpl, sec)
-    if net == "ws":
-        st["wsSettings"] = {"path": tpl.get("path", "/"), "headers": {"Host": DOMAIN}}
-    elif net == "xhttp":
-        st["xhttpSettings"] = {"path": tpl.get("path", "/"), "host": DOMAIN, "mode": "auto"}
-    elif net == "grpc":
-        st["grpcSettings"] = {"serviceName": tpl.get("service", "grpc")}
-    return st
-
-
-def build_inbound(tpl, users, sec):
-    proto = tpl["proto"]
-    clients = clients_for(tpl, users, sec)
     inbound = {
-        "tag": f"in-{tpl['key']}",
-        "listen": "0.0.0.0",
-        "port": tpl["port"],
+        "tag": f"in-{cfg['name'].lower().replace(' ','-')}",
+        "port": port, "listen": "0.0.0.0",
+        "protocol": proto,
     }
-    if proto == "ss":
-        inbound["protocol"] = "shadowsocks"
+
+    if proto == "vless":
+        client = {"id": cfg["id"], "level": 0}
+        if cfg.get("flow"): client["flow"] = cfg["flow"]
+        inbound["settings"] = {"clients": [client], "decryption": "none"}
+    elif proto == "vmess":
+        inbound["settings"] = {"clients": [{"id": cfg["id"], "level": 0}]}
+    elif proto == "trojan":
+        inbound["settings"] = {"clients": [{"password": cfg["password"], "level": 0}]}
+    elif proto == "shadowsocks":
         inbound["settings"] = {
-            "method": SS_METHOD,
-            "password": sec["ss_server_psk"],
-            "clients": clients,
-            "network": "tcp,udp",
+            "method": cfg["method"], "password": cfg["password"], "network": "tcp,udp"
         }
         inbound["streamSettings"] = {"network": "tcp"}
-    elif proto == "vless":
-        inbound["protocol"] = "vless"
-        inbound["settings"] = {"clients": clients, "decryption": "none"}
-        inbound["streamSettings"] = stream_settings(tpl, sec)
-    elif proto == "vmess":
-        inbound["protocol"] = "vmess"
-        inbound["settings"] = {"clients": clients}
-        inbound["streamSettings"] = stream_settings(tpl, sec)
-    elif proto == "trojan":
-        inbound["protocol"] = "trojan"
-        inbound["settings"] = {"clients": clients}
-        inbound["streamSettings"] = stream_settings(tpl, sec)
+        return inbound
+
+    # Stream settings
+    stream = {"network": net}
+
+    if tls == "tls":
+        stream["security"] = "tls"
+        stream["tlsSettings"] = {
+            "certificates": [{"certificateFile": CERT_PATH, "keyFile": KEY_PATH}],
+            "alpn": ["h2", "http/1.1"]
+        }
+    elif tls == "reality":
+        stream["security"] = "reality"
+        stream["realitySettings"] = {
+            "show": False,
+            "dest": cfg.get("reality_dest", "www.google.com:443"),
+            "xver": 0,
+            "serverNames": [cfg.get("sni","www.google.com")],
+            "privateKey": cfg.get("priv_key",""),
+            "shortIds": [cfg.get("short_id", new_uuid()[:8])],
+        }
+    else:
+        stream["security"] = "none"
+
+    if net == "ws":
+        stream["wsSettings"] = {
+            "path": cfg.get("path","/"),
+            "headers": {"Host": cfg.get("sni", DOMAIN)}
+        }
+    elif net == "grpc":
+        stream["grpcSettings"] = {"serviceName": cfg.get("service_name","grpc")}
+    elif net == "httpupgrade":
+        stream["httpupgradeSettings"] = {
+            "path": cfg.get("path","/"), "host": cfg.get("sni", DOMAIN)
+        }
+
+    inbound["streamSettings"] = stream
     return inbound
 
 
-def write_xray_config(users, sec):
-    inbounds = []
-    for t in XRAY_TEMPLATES:
-        # A REALITY inbound with an empty privateKey would crash all of Xray,
-        # so skip it gracefully if key generation failed.
-        if t["sec"] == "reality" and not sec.get("reality_priv"):
-            log("Skipping REALITY inbound (no private key available).")
-            continue
-        inbounds.append(build_inbound(t, users, sec))
-    # API inbound (loopback) for live stats
-    inbounds.append({
+def write_xray_config(inbounds):
+    # Smart dedup by port: prefer reality > tls > none, and skip cf_ip configs
+    # (cf_ip configs reuse the same server inbounds, only the client address differs)
+    by_port = {}
+    for ib in inbounds:
+        p = ib["port"]
+        sec = ib.get("streamSettings", {}).get("security", "none")
+        rank = {"reality": 3, "tls": 2, "none": 1}.get(sec, 0)
+        if p not in by_port:
+            by_port[p] = (rank, ib)
+        else:
+            # keep higher-ranked security on the same port
+            if rank > by_port[p][0]:
+                by_port[p] = (rank, ib)
+    unique = [v[1] for v in by_port.values()]
+
+    # API inbound for traffic stats
+    unique.append({
         "tag": "api",
+        "port": 10085,
         "listen": "127.0.0.1",
-        "port": XRAY_API_PORT,
         "protocol": "dokodemo-door",
-        "settings": {"address": "127.0.0.1"},
+        "settings": {"address": "127.0.0.1"}
     })
+
     conf = {
         "log": {
             "loglevel": "warning",
-            "access": str(LOGS_DIR / "xray-access.log"),
-            "error":  str(LOGS_DIR / "xray-error.log"),
+            "access": "/opt/masterpanel/logs/xray-access.log",
+            "error":  "/opt/masterpanel/logs/xray-error.log"
+        },
+        "api": {
+            "tag": "api",
+            "services": ["HandlerService", "LoggerService", "StatsService"]
         },
         "stats": {},
-        "api": {"tag": "api", "services": ["HandlerService", "StatsService"]},
         "policy": {
             "levels": {"0": {"statsUserUplink": True, "statsUserDownlink": True}},
-            "system": {"statsInboundUplink": True, "statsInboundDownlink": True},
+            "system": {"statsInboundUplink": True, "statsInboundDownlink": True}
         },
-        "inbounds": inbounds,
+        "inbounds": unique,
         "outbounds": [
             {"tag": "direct",  "protocol": "freedom"},
-            {"tag": "blocked", "protocol": "blackhole"},
+            {"tag": "blocked", "protocol": "blackhole"}
         ],
         "routing": {
+            "domainStrategy": "AsIs",
             "rules": [
-                {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
-                {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "blocked"},
+                {"type": "field", "inboundTag": ["api"], "outboundTag": "direct"},
+                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"}
             ]
-        },
+        }
     }
+
     path = XRAY_CFG_DIR / "config.json"
     path.write_text(json.dumps(conf, indent=2))
-    return path
+
+    # Restart xray and verify it started
+    try:
+        subprocess.run(["systemctl", "restart", "xray"], timeout=15, capture_output=True)
+        time.sleep(2)
+        chk = subprocess.run(["systemctl", "is-active", "xray"],
+                             capture_output=True, text=True, timeout=5)
+        if chk.stdout.strip() != "active":
+            # Fallback: run directly
+            subprocess.run(["pkill", "-f", "xray run"], capture_output=True)
+            time.sleep(1)
+            subprocess.Popen([XRAY_BIN, "run", "-c", str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        try:
+            subprocess.run(["pkill", "-f", "xray run"], capture_output=True)
+            time.sleep(1)
+            subprocess.Popen([XRAY_BIN, "run", "-c", str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
-def write_tuic_config(users):
-    """TUIC v5 supports multiple users via a {uuid: password} map."""
-    if not users:
+def write_tuic_config(configs):
+    """Write TUIC v5 server config file."""
+    tuic_cfgs = [c for c in configs if c["protocol"] == "tuic"]
+    if not tuic_cfgs:
         return
-    user_map = {u["uuid"]: u["password"] for u in users}
+    c = tuic_cfgs[0]
     conf = {
-        "server": f"0.0.0.0:{TUIC_PORT}",
-        "users": user_map,
+        "server": f"0.0.0.0:{c['port']}",
+        "users": {c["id"]: c["password"]},
         "certificate": CERT_PATH,
         "private_key": KEY_PATH,
-        "congestion_controller": "bbr",
+        "congestion_controller": c.get("congestion","bbr"),
         "alpn": ["h3"],
-        "log_level": "warn",
+        "log_level": "warn"
     }
     (CONFIGS_DIR / "tuic_config.json").write_text(json.dumps(conf, indent=2))
 
 
-def write_hy2_config(users):
-    """Hysteria2 userpass auth — map of {username: password}."""
-    if not users:
+def write_hysteria2_config(configs):
+    """Write Hysteria2 server config file."""
+    hy2_cfgs = [c for c in configs if c["protocol"] == "hysteria2"]
+    if not hy2_cfgs:
         return
-    lines = []
-    lines.append(f"listen: :{HY2_PORT}")
-    lines.append("tls:")
-    lines.append(f"  cert: {CERT_PATH}")
-    lines.append(f"  key: {KEY_PATH}")
-    lines.append("auth:")
-    lines.append("  type: userpass")
-    lines.append("  userpass:")
-    for u in users:
-        lines.append(f"    {u['username']}: {u['password']}")
-    lines.append("masquerade:")
-    lines.append("  type: proxy")
-    lines.append("  proxy:")
-    lines.append("    url: https://www.bing.com")
-    lines.append("    rewriteHost: true")
-    (CONFIGS_DIR / "hysteria2_config.yaml").write_text("\n".join(lines) + "\n")
+    c = hy2_cfgs[0]
+    conf = {
+        "listen": f":{c['port']}",
+        "tls": {"cert": CERT_PATH, "key": KEY_PATH},
+        "auth": {"type": "password", "password": c["password"]},
+        "masquerade": {"type": "proxy", "proxy": {"url": "https://www.google.com", "rewriteHost": True}},
+        "quic": {"initStreamReceiveWindow": 8388608, "maxStreamReceiveWindow": 8388608},
+        "bandwidth": {"up": "1 gbps", "down": "1 gbps"},
+    }
+    if hy2_cfgs[2].get("obfs"):
+        conf["obfs"] = {"type": "salamander", "salamander": {"password": hy2_cfgs[2]["obfs_password"]}}
+    (CONFIGS_DIR / "hysteria2_config.yaml").write_text(
+        f"listen: :{c['port']}\n"
+        f"tls:\n  cert: {CERT_PATH}\n  key: {KEY_PATH}\n"
+        f"auth:\n  type: password\n  password: {c['password']}\n"
+        f"masquerade:\n  type: proxy\n  proxy:\n    url: https://www.google.com\n    rewriteHost: true\n"
+    )
 
 
-# ══════════════════════════════════════════════════════════════════
-#  Service control
-# ══════════════════════════════════════════════════════════════════
-def restart_xray():
-    path = XRAY_CFG_DIR / "config.json"
+def export_all_links(configs):
+    lines = [
+        "# MasterPanel - All Configs Export",
+        f"# Generated : {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"# Domain    : {DOMAIN}",
+        f"# Server IP : {get_server_ip()}",
+        f"# Total     : {len(configs)} configs",
+        "",
+    ]
+    proto_order = ["vless","vmess","trojan","shadowsocks","tuic","hysteria2","wireguard"]
+    for conn_type, header in [("domain","CDN / Domain Configs"), ("direct_ip","Direct IP Configs")]:
+        group = [c for c in configs if c.get("connection_type") == conn_type]
+        if not group: continue
+        lines.append(f"# ── {header} {'─'*(48-len(header))}")
+        for proto in proto_order:
+            pg = [c for c in group if c["protocol"] == proto]
+            for c in pg:
+                link = c.get("link","")
+                lines.append(
+                    f"# {c['name']} | {c['protocol'].upper()} | "
+                    f"{c.get('network','tcp').upper()} | TLS:{c.get('tls','none')} | Port:{c['port']}"
+                )
+                if link:
+                    lines.append(link)
+                if c.get("note"):
+                    lines.append(f"# NOTE: {c['note']}")
+                lines.append("")
+
+    (CONFIGS_DIR / "all_links.txt").write_text("\n".join(lines), encoding="utf-8")
+
+    raw = [c.get("link","") for c in configs if c.get("link")]
+    (CONFIGS_DIR / "subscription.txt").write_text("\n".join(raw), encoding="utf-8")
+    (CONFIGS_DIR / "subscription_b64.txt").write_text(
+        base64.b64encode("\n".join(raw).encode()).decode(), encoding="utf-8")
+
+
+def load_saved_configs():
+    p = CONFIGS_DIR / "all_configs.json"
+    if p.exists():
+        try: return json.loads(p.read_text())
+        except: pass
+    return []
+
+# ── Tests ─────────────────────────────────────────────────────
+def test_tls_handshake(host, port=443):
     try:
-        r = subprocess.run(["systemctl", "restart", "xray"], timeout=12, capture_output=True)
-        if r.returncode == 0:
-            return
-    except Exception:
-        pass
-    # Fallback: kill running xray and relaunch
-    try:
-        subprocess.run(["pkill", "-f", "xray run"], capture_output=True)
-        time.sleep(1)
-        subprocess.Popen([XRAY_BIN, "run", "-c", str(path)],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        ctx = ssl.create_default_context()
+        with socket.create_connection((host, port), timeout=5) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                return {"ok": True, "tls_version": ssock.version(), "cipher": ssock.cipher()[0]}
     except Exception as e:
-        log(f"restart_xray fallback error: {e}")
+        return {"ok": False, "error": str(e)}
 
-
-def restart_service(name):
-    try:
-        subprocess.run(["systemctl", "restart", name], timeout=12, capture_output=True)
-    except Exception as e:
-        log(f"restart_service {name} error: {e}")
-
-
-def stop_service(name):
-    try:
-        subprocess.run(["systemctl", "stop", name], timeout=12, capture_output=True)
-    except Exception:
-        pass
-
-
-def active_users():
-    """Users that should be live: status active AND not expired."""
-    return [u for u in get_all_users()
-            if u["status"] == "active" and not is_expired(u["expire_date"])]
-
-
-def apply_configs():
-    """Rebuild every server config from the DB and reload services."""
-    sec = ensure_server_secrets()
-    users = active_users()
-
-    write_xray_config(users, sec)
-    restart_xray()
-
-    if Path(HY2_BIN).exists():
-        if users:
-            write_hy2_config(users)
-            restart_service("hysteria2")
-        else:
-            stop_service("hysteria2")
-
-    if Path(TUIC_BIN).exists():
-        if users:
-            write_tuic_config(users)
-            restart_service("tuic-server")
-        else:
-            stop_service("tuic-server")
-
-    log(f"apply_configs: {len(users)} active user(s) synced.")
-
-
-def apply_configs_async():
-    def _run():
-        with _apply_lock:
-            try:
-                apply_configs()
-            except Exception as e:
-                log(f"apply_configs error: {e}")
-    threading.Thread(target=_run, daemon=True).start()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Xray Stats API  →  traffic monitor
-# ══════════════════════════════════════════════════════════════════
-def query_xray_stats():
-    """Return {username: delta_bytes_since_last_poll}. Uses -reset (delta mode)."""
-    deltas = {}
-    try:
-        r = subprocess.run(
-            [XRAY_BIN, "api", "statsquery", f"--server=127.0.0.1:{XRAY_API_PORT}", "-reset"],
-            capture_output=True, text=True, timeout=10)
-        if r.returncode != 0 or not r.stdout.strip():
-            return deltas
-        data = json.loads(r.stdout)
-        for stat in data.get("stat", []) or []:
-            name = stat.get("name", "")
-            value = int(stat.get("value", 0) or 0)
-            # pattern: user>>>EMAIL>>>traffic>>>uplink|downlink
-            if name.startswith("user>>>"):
-                parts = name.split(">>>")
-                if len(parts) >= 2:
-                    email = parts[1]
-                    deltas[email] = deltas.get(email, 0) + value
-    except Exception as e:
-        log(f"query_xray_stats error: {e}")
-    return deltas
-
-
-def run_monitor():
-    """Update usage, auto-disable on limit/expiry, reload if anything changed."""
-    deltas = query_xray_stats()
-    changed = False
-    for u in get_all_users():
-        delta = int(deltas.get(u["username"], 0))
-        new_used = u["used_traffic_bytes"] + delta
-        new_status = u["status"]
-
-        if u["status"] == "active":
-            limit = u["traffic_limit_gb"] or 0
-            if limit > 0 and new_used >= limit * GB:
-                new_status = "limited"
-                changed = True
-                tg_send(f"⛔️ کاربر <b>{u['username']}</b> به سقف ترافیک رسید و غیرفعال شد.\n"
-                        f"مصرف: {human_bytes(new_used)} / {limit} گیگابایت")
-            elif is_expired(u["expire_date"]):
-                new_status = "expired"
-                changed = True
-                tg_send(f"⏳ اشتراک کاربر <b>{u['username']}</b> منقضی شد و غیرفعال گردید.")
-
-        if delta != 0 or new_status != u["status"]:
-            update_user(u["id"], used_traffic_bytes=new_used, status=new_status)
-
-    if changed:
-        apply_configs_async()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Telegram bot
-# ══════════════════════════════════════════════════════════════════
-def tg_token():
-    return get_setting("telegram_bot_token", "").strip()
-
-
-def tg_chat():
-    return get_setting("telegram_admin_chat", "").strip()
-
-
-def tg_enabled():
-    return bool(tg_token() and tg_chat())
-
-
-def tg_send(text):
-    if not tg_enabled():
-        return False
-    try:
-        import requests
-        url = f"https://api.telegram.org/bot{tg_token()}/sendMessage"
-        requests.post(url, json={"chat_id": tg_chat(), "text": text,
-                                 "parse_mode": "HTML"}, timeout=10)
-        return True
-    except Exception as e:
-        log(f"tg_send error: {e}")
-        return False
-
-
-def tg_send_doc(path, caption=""):
-    if not tg_enabled():
-        return False
-    try:
-        import requests
-        url = f"https://api.telegram.org/bot{tg_token()}/sendDocument"
-        with open(path, "rb") as fp:
-            requests.post(url, data={"chat_id": tg_chat(), "caption": caption},
-                          files={"document": fp}, timeout=30)
-        return True
-    except Exception as e:
-        log(f"tg_send_doc error: {e}")
-        return False
-
-
-def tg_backup():
-    if not DB_FILE.exists():
-        return False
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    tmp = CONFIGS_DIR / f"users_backup_{ts}.db"
-    try:
-        shutil.copy(str(DB_FILE), str(tmp))
-        ok = tg_send_doc(str(tmp), caption=f"📦 پشتیبان دیتابیس MasterPanel\n🕒 {ts}")
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return ok
-    except Exception as e:
-        log(f"tg_backup error: {e}")
-        return False
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Connectivity tests
-# ══════════════════════════════════════════════════════════════════
 def test_port(host, port):
     try:
         with socket.create_connection((host, int(port)), timeout=5):
@@ -989,629 +692,582 @@ def test_port(host, port):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-
-def test_tls_handshake(host, port=443):
-    try:
-        ctx = ssl.create_default_context()
-        with socket.create_connection((host, int(port)), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=host) as ss:
-                return {"ok": True, "tls_version": ss.version(), "cipher": ss.cipher()[0]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
 def test_latency(host, port=443):
     try:
         start = time.time()
-        socket.create_connection((host, int(port)), timeout=5).close()
-        return {"ok": True, "ms": round((time.time() - start) * 1000)}
+        socket.create_connection((host, port), timeout=5).close()
+        return {"ok": True, "ms": round((time.time()-start)*1000)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-
 def xray_status():
     try:
-        r = subprocess.run(["pgrep", "-f", "xray"], capture_output=True, text=True)
+        r = subprocess.run(["pgrep","-f","xray"], capture_output=True, text=True)
         running = bool(r.stdout.strip())
         version = ""
         if running:
-            vr = subprocess.run([XRAY_BIN, "version"], capture_output=True, text=True, timeout=3)
+            vr = subprocess.run([XRAY_BIN,"version"], capture_output=True, text=True, timeout=3)
             version = vr.stdout.splitlines()[0] if vr.stdout else ""
         return {"running": running, "version": version}
-    except Exception:
+    except:
         return {"running": False, "version": ""}
 
-
-def tpl_address(tpl):
-    if tpl["conn"] == "cdn":
-        clean = get_setting("clean_ip", "").strip()
-        return clean if clean else DOMAIN
-    return server_ip()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  User serialization for the API
-# ══════════════════════════════════════════════════════════════════
-def user_public(u):
-    limit = u["traffic_limit_gb"] or 0
-    used = u["used_traffic_bytes"] or 0
-    expired = is_expired(u["expire_date"])
-    percent = 0
-    if limit > 0:
-        percent = min(100, round(used / (limit * GB) * 100, 1))
-    effective = "active" if (u["status"] == "active" and not expired) else u["status"]
-    if expired and u["status"] == "active":
-        effective = "expired"
-    return {
-        "id": u["id"], "username": u["username"], "uuid": u["uuid"],
-        "status": u["status"], "effective_status": effective,
-        "traffic_limit_gb": limit,
-        "limit_human": (f"{limit:g} GB" if limit > 0 else "نامحدود"),
-        "used_traffic_bytes": used, "used_human": human_bytes(used),
-        "used_gb": round(used / GB, 2),
-        "percent": percent,
-        "expire_date": u["expire_date"] or "",
-        "remaining_days": remaining_days(u["expire_date"]),
-        "expired": expired,
-        "note": u["note"] or "",
-        "created_at": u["created_at"] or "",
-    }
-
-
-def sub_url_for(u):
-    base = get_setting("sub_url_base", "").strip().rstrip("/")
-    if base:
-        return f"{base}/sub/{u['uuid']}"
-    try:
-        host = request.host
-        scheme = request.scheme
-        return f"{scheme}://{host}/sub/{u['uuid']}"
-    except Exception:
-        return f"http://{server_ip()}:{PANEL_PORT}/sub/{u['uuid']}"
-
-
-def all_users_links_text():
-    lines = ["# MasterPanel v3.0 — All Users Export",
-             f"# Generated: {now_iso()}", ""]
-    for u in get_all_users():
-        lines.append(f"# ── {u['username']} ({user_public(u)['effective_status']}) ──")
-        for c in build_user_configs(u):
-            if c.get("link"):
-                lines.append(c["link"])
-        lines.append("")
-    return "\n".join(lines)
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Auth
-# ══════════════════════════════════════════════════════════════════
+# ── Auth decorator ────────────────────────────────────────────
 def login_required(f):
+    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("logged_in"):
             if request.path.startswith("/api/"):
-                return jsonify({"ok": False, "error": "unauthorized"}), 401
+                return jsonify({"ok":False,"error":"Unauthorized"}), 401
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
 
-
+# ── Routes ────────────────────────────────────────────────────
 def serve_html():
+    """Serve index.html as plain file — bypass Jinja2 to avoid template conflicts."""
     html_path = PANEL_DIR / "templates" / "index.html"
     if html_path.exists():
         return html_path.read_text(encoding="utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
     return "<h1>index.html not found</h1>", 404
 
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — core
-# ══════════════════════════════════════════════════════════════════
 @app.route("/")
 def index():
-    if not session.get("logged_in"):
-        return redirect(url_for("login_page"))
+    if not session.get("logged_in"): return redirect(url_for("login_page"))
     return serve_html()
 
-
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET","POST"])
 def login_page():
     if request.method == "POST":
-        d = request.get_json(silent=True) or {}
+        d = request.get_json() or {}
         if d.get("username") == PANEL_USER and d.get("password") == PANEL_PASS:
             session["logged_in"] = True
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": "نام کاربری یا رمز اشتباه است"})
     return serve_html()
 
-
 @app.route("/api/logout", methods=["POST"])
 def logout():
     session.clear()
     return jsonify({"ok": True})
 
-
 @app.route("/api/status")
 @login_required
 def api_status():
-    users = get_all_users()
-    total_used = sum(u["used_traffic_bytes"] or 0 for u in users)
-    act = len([u for u in users if u["status"] == "active" and not is_expired(u["expire_date"])])
-    ip = server_ip()
+    xs = xray_status()
+    configs = load_saved_configs()
+    proto_counts = {}
+    for c in configs:
+        p = c["protocol"]
+        proto_counts[p] = proto_counts.get(p,0) + 1
+    ip = get_server_ip()
     return jsonify({
-        "xray": xray_status(),
-        "domain": DOMAIN,
-        "server_ip": ip,
+        "xray": xs, "domain": DOMAIN, "server_ip": ip,
         "panel_url": f"http://{ip}:{PANEL_PORT}",
-        "user_count": len(users),
-        "active_count": act,
-        "total_used_bytes": total_used,
-        "total_used_human": human_bytes(total_used),
-        "config_count": len(TEMPLATES) + 2,   # + hy2 + tuic per user
+        "config_count": len(configs), "proto_counts": proto_counts,
         "ssl_valid": Path(CERT_PATH).exists() if CERT_PATH else False,
         "uptime": get_uptime(),
-        "clean_ip": get_setting("clean_ip", ""),
-        "telegram_enabled": tg_enabled(),
     })
 
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — user management (CRUD)
-# ══════════════════════════════════════════════════════════════════
-@app.route("/api/users", methods=["GET"])
+@app.route("/api/configs")
 @login_required
-def api_users_list():
-    return jsonify({"ok": True, "users": [user_public(u) for u in get_all_users()]})
+def api_configs():
+    return jsonify(load_saved_configs())
 
-
-@app.route("/api/users", methods=["POST"])
+@app.route("/api/generate", methods=["POST"])
 @login_required
-def api_users_create():
-    d = request.get_json(silent=True) or {}
-    username = (d.get("username") or "").strip()
-    if not username:
-        return jsonify({"ok": False, "error": "نام کاربری الزامی است"})
-    if get_user_by_name(username):
-        return jsonify({"ok": False, "error": "این نام کاربری قبلاً ثبت شده است"})
+def api_generate():
     try:
-        expire_date = parse_expire(d)
-        uid = create_user(
-            username=username,
-            traffic_limit_gb=d.get("traffic_limit_gb", 0),
-            expire_date=expire_date,
-            note=(d.get("note") or "").strip(),
-            user_uuid=(d.get("uuid") or "").strip() or None,
-            status="active",
-        )
-        apply_configs_async()
-        return jsonify({"ok": True, "user": user_public(get_user(uid))})
+        configs = generate_all_configs()
+        return jsonify({"ok": True, "count": len(configs), "configs": configs})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-
-@app.route("/api/users/<int:uid>", methods=["PUT"])
+@app.route("/api/test", methods=["POST"])
 @login_required
-def api_users_update(uid):
-    u = get_user(uid)
-    if not u:
-        return jsonify({"ok": False, "error": "کاربر یافت نشد"})
-    d = request.get_json(silent=True) or {}
-    fields = {}
-    if "username" in d and d["username"].strip():
-        nm = d["username"].strip()
-        other = get_user_by_name(nm)
-        if other and other["id"] != uid:
-            return jsonify({"ok": False, "error": "این نام کاربری قبلاً ثبت شده است"})
-        fields["username"] = nm
-    if "traffic_limit_gb" in d:
-        try:
-            fields["traffic_limit_gb"] = float(d["traffic_limit_gb"] or 0)
-        except Exception:
-            pass
-    if "note" in d:
-        fields["note"] = (d.get("note") or "").strip()
-    if d.get("expire_date") is not None or d.get("expire_days") is not None:
-        fields["expire_date"] = parse_expire(d)
-    if "status" in d and d["status"] in ("active", "disabled", "limited", "expired"):
-        fields["status"] = d["status"]
-    try:
-        update_user(uid, **fields)
-        apply_configs_async()
-        return jsonify({"ok": True, "user": user_public(get_user(uid))})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+def api_test():
+    d = request.get_json() or {}
+    t = d.get("type")
+    host = d.get("host", DOMAIN)
+    port = d.get("port", 443)
 
-
-@app.route("/api/users/<int:uid>", methods=["DELETE"])
-@login_required
-def api_users_delete(uid):
-    if not get_user(uid):
-        return jsonify({"ok": False, "error": "کاربر یافت نشد"})
-    delete_user(uid)
-    apply_configs_async()
-    return jsonify({"ok": True})
-
-
-@app.route("/api/users/<int:uid>/reset", methods=["POST"])
-@login_required
-def api_users_reset(uid):
-    u = get_user(uid)
-    if not u:
-        return jsonify({"ok": False, "error": "کاربر یافت نشد"})
-    new_status = "active" if u["status"] == "limited" else u["status"]
-    update_user(uid, used_traffic_bytes=0, status=new_status)
-    apply_configs_async()
-    return jsonify({"ok": True, "user": user_public(get_user(uid))})
-
-
-@app.route("/api/users/<int:uid>/toggle", methods=["POST"])
-@login_required
-def api_users_toggle(uid):
-    u = get_user(uid)
-    if not u:
-        return jsonify({"ok": False, "error": "کاربر یافت نشد"})
-    new_status = "disabled" if u["status"] == "active" else "active"
-    update_user(uid, status=new_status)
-    apply_configs_async()
-    return jsonify({"ok": True, "user": user_public(get_user(uid))})
-
-
-@app.route("/api/users/<int:uid>/links", methods=["GET"])
-@login_required
-def api_users_links(uid):
-    u = get_user(uid)
-    if not u:
-        return jsonify({"ok": False, "error": "کاربر یافت نشد"})
-    configs = build_user_configs(u)
-    raw = "\n".join(c["link"] for c in configs if c.get("link"))
-    return jsonify({
-        "ok": True,
-        "configs": configs,
-        "raw": raw,
-        "sub_url": sub_url_for(u),
-    })
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — subscription (PUBLIC, no auth)
-# ══════════════════════════════════════════════════════════════════
-@app.route("/sub/<token>")
-def subscription(token):
-    u = get_user_by_uuid(token)
-    if not u:
-        return Response("not found", status=404)
-
-    links = [build_info_node(u)]
-    for c in build_user_configs(u):
-        if c.get("link"):
-            links.append(c["link"])
-    body = base64.b64encode("\n".join(links).encode()).decode()
-
-    limit = u["traffic_limit_gb"] or 0
-    total = int(limit * GB) if limit > 0 else 0
-    headers = {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Profile-Update-Interval": "12",
-        "Subscription-Userinfo":
-            f"upload=0; download={u['used_traffic_bytes']}; total={total}; "
-            f"expire={expire_unix(u['expire_date'])}",
-        "Profile-Title": "base64:" + base64.b64encode(
-            f"MasterPanel - {u['username']}".encode()).decode(),
-    }
-    return Response(body, headers=headers)
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — settings
-# ══════════════════════════════════════════════════════════════════
-EDITABLE_SETTINGS = [
-    "clean_ip", "telegram_bot_token", "telegram_admin_chat",
-    "github_repo", "github_branch", "monitor_interval", "backup_hour",
-    "sub_url_base",
-]
-
-
-@app.route("/api/settings", methods=["GET"])
-@login_required
-def api_settings_get():
-    out = {}
-    for k in EDITABLE_SETTINGS:
-        out[k] = get_setting(k, "")
-    out["telegram_enabled"] = tg_enabled()
-    return jsonify({"ok": True, "settings": out})
-
-
-@app.route("/api/settings", methods=["POST"])
-@login_required
-def api_settings_set():
-    d = request.get_json(silent=True) or {}
-    changed_clean = False
-    for k in EDITABLE_SETTINGS:
-        if k in d:
-            if k == "clean_ip" and str(d[k]).strip() != get_setting("clean_ip", ""):
-                changed_clean = True
-            set_setting(k, str(d[k]).strip())
-    # Clean-IP changes affect generated configs only (no server rewrite needed),
-    # but rebuild anyway so any host/SNI changes propagate.
-    if changed_clean:
-        apply_configs_async()
-    return jsonify({"ok": True, "settings": {k: get_setting(k, "") for k in EDITABLE_SETTINGS}})
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — Xray / apply / test
-# ══════════════════════════════════════════════════════════════════
-@app.route("/api/apply", methods=["POST"])
-@login_required
-def api_apply():
-    apply_configs_async()
-    return jsonify({"ok": True, "message": "همگام‌سازی پیکربندی‌ها آغاز شد"})
-
+    if t == "tls":     return jsonify(test_tls_handshake(host, port))
+    if t == "port":    return jsonify(test_port(host, port))
+    if t == "latency": return jsonify(test_latency(host, port))
+    if t == "all":
+        results = {}
+        for cfg in load_saved_configs():
+            h = cfg.get("address", DOMAIN)
+            p = cfg.get("port", 443)
+            lat = test_latency(h, p)
+            prt = test_port(h, p)
+            results[cfg["name"]] = {
+                "latency": lat.get("ms") if lat["ok"] else None,
+                "port_open": prt["ok"],
+                "protocol": cfg["protocol"],
+                "tls": cfg.get("tls","none"),
+                "network": cfg.get("network","tcp"),
+                "connection_type": cfg.get("connection_type",""),
+            }
+        return jsonify({"ok": True, "results": results})
+    return jsonify({"ok": False, "error": "Unknown test type"})
 
 @app.route("/api/xray/restart", methods=["POST"])
 @login_required
 def api_xray_restart():
     try:
-        restart_xray()
+        subprocess.run(["systemctl","restart","xray"], timeout=10, capture_output=True)
         time.sleep(1)
         return jsonify({"ok": True, "status": xray_status()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-
 @app.route("/api/xray/logs")
 @login_required
 def api_xray_logs():
-    f = LOGS_DIR / "xray-error.log"
+    f = Path("/opt/masterpanel/logs/xray-error.log")
     lines = f.read_text().splitlines()[-50:] if f.exists() else []
     return jsonify({"ok": True, "lines": lines})
-
-
-@app.route("/api/test", methods=["POST"])
-@login_required
-def api_test():
-    d = request.get_json(silent=True) or {}
-    t = d.get("type")
-    host = d.get("host", DOMAIN)
-    port = d.get("port", 443)
-    if t == "tls":
-        return jsonify(test_tls_handshake(host, port))
-    if t == "port":
-        return jsonify(test_port(host, port))
-    if t == "latency":
-        return jsonify(test_latency(host, port))
-    if t == "all":
-        results = {}
-        for tpl in TEMPLATES:
-            addr = tpl_address(tpl)
-            label = tpl["label"]
-            if tpl["proto"] in ("ss",) or tpl["net"] in ("tcp", "ws", "xhttp", "grpc"):
-                lat = test_latency(addr, tpl["port"])
-                prt = test_port(addr, tpl["port"])
-                results[f"{label}:{tpl['port']}"] = {
-                    "latency": lat.get("ms") if lat["ok"] else None,
-                    "port_open": prt["ok"],
-                    "protocol": tpl["proto"], "network": tpl["net"],
-                    "tls": tpl["sec"], "conn": tpl["conn"],
-                }
-        # UDP daemons can't be tested with TCP connect
-        results["HYSTERIA2:443"] = {"latency": None, "port_open": None,
-                                    "protocol": "hysteria2", "network": "udp",
-                                    "tls": "tls", "conn": "direct", "udp": True}
-        results["TUIC:2053"] = {"latency": None, "port_open": None,
-                                "protocol": "tuic", "network": "udp",
-                                "tls": "tls", "conn": "direct", "udp": True}
-        return jsonify({"ok": True, "results": results})
-    return jsonify({"ok": False, "error": "Unknown test type"})
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — Telegram
-# ══════════════════════════════════════════════════════════════════
-@app.route("/api/telegram/test", methods=["POST"])
-@login_required
-def api_tg_test():
-    if not tg_enabled():
-        return jsonify({"ok": False, "error": "توکن یا چت‌آیدی تنظیم نشده است"})
-    ok = tg_send("✅ اتصال ربات تلگرام MasterPanel با موفقیت برقرار شد.")
-    return jsonify({"ok": ok})
-
-
-@app.route("/api/telegram/backup", methods=["POST"])
-@login_required
-def api_tg_backup():
-    if not tg_enabled():
-        return jsonify({"ok": False, "error": "توکن یا چت‌آیدی تنظیم نشده است"})
-    ok = tg_backup()
-    return jsonify({"ok": ok, "message": "پشتیبان ارسال شد" if ok else "ارسال ناموفق بود"})
-
-
-@app.route("/api/backup")
-@login_required
-def api_backup():
-    if not DB_FILE.exists():
-        return jsonify({"ok": False, "error": "دیتابیس یافت نشد"})
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    return Response(
-        DB_FILE.read_bytes(),
-        mimetype="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename=users_{ts}.db"})
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Routes — GitHub auto-update
-# ══════════════════════════════════════════════════════════════════
-@app.route("/api/update", methods=["POST"])
-@login_required
-def api_update():
-    repo = get_setting("github_repo", "").strip()
-    branch = get_setting("github_branch", "main").strip() or "main"
-    if not repo:
-        return jsonify({"ok": False, "error": "ریپازیتوری گیت‌هاب تنظیم نشده است"})
-
-    base = f"https://raw.githubusercontent.com/{repo}/{branch}"
-    targets = [
-        (f"{base}/masterpanel.py", PANEL_DIR / "masterpanel.py"),
-        (f"{base}/index.html",     PANEL_DIR / "templates" / "index.html"),
-    ]
-    updated = []
-    try:
-        for url, dest in targets:
-            req = urllib.request.Request(url, headers={"User-Agent": "MasterPanel-Updater"})
-            with urllib.request.urlopen(req, timeout=20) as r:
-                data = r.read()
-            if not data:
-                continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                shutil.copy(str(dest), str(dest) + ".bak")
-            dest.write_bytes(data)
-            updated.append(dest.name)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"خطا در دریافت فایل‌ها: {e}"})
-
-    if not updated:
-        return jsonify({"ok": False, "error": "هیچ فایلی دریافت نشد"})
-
-    # Restart the panel shortly after responding (users.db is untouched)
-    def _restart():
-        time.sleep(1.2)
-        try:
-            subprocess.run(["systemctl", "restart", "masterpanel"], capture_output=True)
-        except Exception:
-            pass
-    threading.Thread(target=_restart, daemon=True).start()
-
-    return jsonify({
-        "ok": True,
-        "updated": updated,
-        "message": "بروزرسانی انجام شد. پنل در حال راه‌اندازی مجدد است… "
-                   "(دیتابیس کاربران حفظ شد). چند لحظه صبر کنید و صفحه را تازه‌سازی نمایید.",
-    })
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Legacy-compat routes (so an old v2 index.html keeps working)
-# ══════════════════════════════════════════════════════════════════
-@app.route("/api/configs")
-@login_required
-def api_configs():
-    users = get_all_users()
-    return jsonify(build_user_configs(users[0]) if users else [])
-
-
-@app.route("/api/generate", methods=["POST"])
-@login_required
-def api_generate():
-    apply_configs_async()
-    users = get_all_users()
-    cfgs = build_user_configs(users[0]) if users else []
-    return jsonify({"ok": True, "count": len(cfgs), "configs": cfgs})
-
 
 @app.route("/api/export/links")
 @login_required
 def api_export_links():
-    return Response(all_users_links_text(), mimetype="text/plain",
-                    headers={"Content-Disposition": "attachment; filename=all_links.txt"})
-
+    f = CONFIGS_DIR / "all_links.txt"
+    if not f.exists(): return jsonify({"ok": False, "error": "No configs yet"})
+    return Response(f.read_text(encoding="utf-8"), mimetype="text/plain",
+        headers={"Content-Disposition": "attachment; filename=all_links.txt"})
 
 @app.route("/api/export/subscription")
 @login_required
 def api_export_subscription():
-    raw = "\n".join(l for l in all_users_links_text().splitlines()
-                    if l and not l.startswith("#"))
-    return Response(raw, mimetype="text/plain",
-                    headers={"Content-Disposition": "attachment; filename=subscription.txt"})
-
+    f = CONFIGS_DIR / "subscription.txt"
+    if not f.exists(): return jsonify({"ok": False, "error": "No configs yet"})
+    return Response(f.read_text(encoding="utf-8"), mimetype="text/plain",
+        headers={"Content-Disposition": "attachment; filename=subscription.txt"})
 
 @app.route("/api/export/subscription_b64")
 @login_required
 def api_export_subscription_b64():
-    raw = "\n".join(l for l in all_users_links_text().splitlines()
-                    if l and not l.startswith("#"))
-    return Response(base64.b64encode(raw.encode()).decode(), mimetype="text/plain",
-                    headers={"Content-Disposition": "attachment; filename=subscription_b64.txt"})
-
+    f = CONFIGS_DIR / "subscription_b64.txt"
+    if not f.exists(): return jsonify({"ok": False, "error": "No configs yet"})
+    return Response(f.read_text(encoding="utf-8"), mimetype="text/plain",
+        headers={"Content-Disposition": "attachment; filename=subscription_b64.txt"})
 
 @app.route("/api/export/summary")
 @login_required
 def api_export_summary():
-    users = get_all_users()
+    configs = load_saved_configs()
+    domain_cfgs = [c for c in configs if c.get("connection_type") == "domain"]
+    ip_cfgs     = [c for c in configs if c.get("connection_type") == "direct_ip"]
+    proto_counts = {}
+    for c in configs:
+        p = c["protocol"]; proto_counts[p] = proto_counts.get(p,0)+1
     return jsonify({
-        "ok": True,
-        "total_users": len(users),
-        "active_users": len([u for u in users if u["status"] == "active" and not is_expired(u["expire_date"])]),
-        "configs_per_user": len(TEMPLATES) + 2,
+        "ok": True, "total": len(configs),
+        "domain_configs": len(domain_cfgs),
+        "direct_ip_configs": len(ip_cfgs),
+        "proto_counts": proto_counts,
+        "subscription_ready": (CONFIGS_DIR/"subscription_b64.txt").exists(),
     })
 
-
-# ══════════════════════════════════════════════════════════════════
-#  Background scheduler
-# ══════════════════════════════════════════════════════════════════
-def _initial_sync():
-    time.sleep(2)
-    with _apply_lock:
-        try:
-            apply_configs()
-        except Exception as e:
-            log(f"initial sync error: {e}")
+@app.route("/api/extra_configs")
+@login_required
+def api_extra_configs():
+    """Return paths to TUIC/HY2 config files for display."""
+    result = {}
+    for name, fname in [("tuic","tuic_config.json"),("hysteria2","hysteria2_config.yaml")]:
+        f = CONFIGS_DIR / fname
+        result[name] = f.read_text() if f.exists() else None
+    return jsonify({"ok": True, "configs": result})
 
 
-def start_background():
-    # Initial sync from DB on boot
-    threading.Thread(target=_initial_sync, daemon=True).start()
+# ── Settings API ──────────────────────────────────────────────
+@app.route("/api/settings", methods=["GET"])
+@login_required
+def api_settings_get():
+    cfg = load_conf()
+    return jsonify({
+        "ok": True,
+        "domain":     cfg.get("DOMAIN",""),
+        "panel_user": cfg.get("PANEL_USER",""),
+        "panel_port": cfg.get("PANEL_PORT","9090"),
+        "cert_path":  cfg.get("CERT_PATH",""),
+        "key_path":   cfg.get("KEY_PATH",""),
+        "server_ip":  get_server_ip(),
+        "version":    CURRENT_VERSION,
+        "uptime":     get_uptime(),
+    })
 
-    interval = max(15, int(get_setting("monitor_interval", "60") or 60))
-    backup_hour = int(get_setting("backup_hour", "6") or 6)
+@app.route("/api/settings", methods=["POST"])
+@login_required
+def api_settings_save():
+    global DOMAIN, PANEL_USER, PANEL_PASS, CERT_PATH, KEY_PATH
+    d = request.get_json() or {}
+    cfg = load_conf()
 
+    # Update fields
+    if d.get("domain"):      cfg["DOMAIN"]     = d["domain"].strip()
+    if d.get("panel_user"):  cfg["PANEL_USER"]  = d["panel_user"].strip()
+    if d.get("panel_pass") and len(d["panel_pass"]) >= 8:
+        cfg["PANEL_PASS"] = d["panel_pass"]
+    if d.get("cert_path"):   cfg["CERT_PATH"]   = d["cert_path"].strip()
+    if d.get("key_path"):    cfg["KEY_PATH"]     = d["key_path"].strip()
+
+    # Save to panel.conf
+    lines = []
+    for k, v in cfg.items():
+        lines.append(f"{k}={v}")
+    CONF_FILE.write_text("\n".join(lines))
+
+    # Reload globals
+    new_cfg = load_conf()
+    DOMAIN     = new_cfg.get("DOMAIN", DOMAIN)
+    PANEL_USER = new_cfg.get("PANEL_USER", PANEL_USER)
+    PANEL_PASS = new_cfg.get("PANEL_PASS", PANEL_PASS)
+    CERT_PATH  = new_cfg.get("CERT_PATH", CERT_PATH)
+    KEY_PATH   = new_cfg.get("KEY_PATH", KEY_PATH)
+
+    # Restart to apply changes
+    import subprocess as sp
+    sp.Popen(["bash","-c","sleep 1 && systemctl restart masterpanel"])
+    return jsonify({"ok":True,"message":"تنظیمات ذخیره شد — در حال ری‌استارت..."})
+
+# ── Users API ──────────────────────────────────────────────────
+USERS_FILE = PANEL_DIR / "configs" / "users.json"
+
+def load_users():
+    if USERS_FILE.exists():
+        try: return json.loads(USERS_FILE.read_text())
+        except: pass
+    return {}
+
+def save_users(u):
+    USERS_FILE.write_text(json.dumps(u, indent=2, ensure_ascii=False))
+
+def get_user_traffic(uid):
+    """Get traffic usage for a user from iptables or Xray stats."""
     try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        sched = BackgroundScheduler(daemon=True)
-        sched.add_job(run_monitor, "interval", seconds=interval, id="monitor",
-                      max_instances=1, coalesce=True)
-        sched.add_job(tg_backup, "cron", hour=backup_hour, minute=0, id="backup")
-        sched.start()
-        log(f"APScheduler started (monitor every {interval}s, backup at {backup_hour}:00).")
+        # Try iptables
+        result = subprocess.run(
+            ["iptables", "-L", "OUTPUT", "-v", "-n", "-x"],
+            capture_output=True, text=True, timeout=5
+        )
+        # Basic implementation - return 0 for now
+        return 0
+    except:
+        return 0
+
+@app.route("/api/users", methods=["GET"])
+@login_required
+def api_users_list():
+    users = load_users()
+    # Update traffic for each user
+    result = []
+    for uid, user in users.items():
+        user["used_bytes"] = get_user_traffic(uid)
+        # Check expiry
+        if user.get("expire_at"):
+            from datetime import datetime as dt
+            try:
+                exp = dt.strptime(user["expire_at"], "%Y-%m-%d")
+                user["expired"] = dt.now() > exp
+            except:
+                user["expired"] = False
+        else:
+            user["expired"] = False
+        # Check traffic limit
+        if user.get("limit_gb", 0) > 0:
+            limit_bytes = user["limit_gb"] * 1024**3
+            user["traffic_exceeded"] = user["used_bytes"] > limit_bytes
+        else:
+            user["traffic_exceeded"] = False
+        result.append(user)
+    return jsonify({"ok": True, "users": result})
+
+@app.route("/api/users", methods=["POST"])
+@login_required
+def api_users_create():
+    d = request.get_json() or {}
+    name = d.get("name","").strip()
+    if not name:
+        return jsonify({"ok":False,"error":"نام کاربر الزامی است"})
+    if len(name) < 2:
+        return jsonify({"ok":False,"error":"نام باید حداقل ۲ کاراکتر باشد"})
+
+    limit_gb    = float(d.get("limit_gb", 0))
+    expire_days = int(d.get("expire_days", 0))
+    note        = d.get("note","").strip()
+
+    users = load_users()
+    # Check duplicate name
+    for u in users.values():
+        if u["name"].lower() == name.lower():
+            return jsonify({"ok":False,"error":"این نام قبلاً استفاده شده"})
+
+    uid = new_uuid()
+    from datetime import timedelta, datetime as dt
+    expire_at = (dt.now()+timedelta(days=expire_days)).strftime("%Y-%m-%d") if expire_days > 0 else ""
+
+    users[uid] = {
+        "id":         uid,
+        "name":       name,
+        "uuid":       new_uuid(),
+        "password":   new_password(20),
+        "limit_gb":   limit_gb,
+        "expire_at":  expire_at,
+        "note":       note,
+        "created_at": dt.now().strftime("%Y-%m-%d %H:%M"),
+        "enabled":    True,
+        "used_bytes": 0,
+        "configs":    [],
+    }
+    save_users(users)
+    return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>", methods=["GET"])
+@login_required
+def api_users_get(uid):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>", methods=["DELETE"])
+@login_required
+def api_users_delete(uid):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    del users[uid]
+    save_users(users)
+    return jsonify({"ok":True})
+
+@app.route("/api/users/<uid>", methods=["PATCH"])
+@login_required
+def api_users_update(uid):
+    d = request.get_json() or {}
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"Not found"})
+    for k in ("name","limit_gb","expire_at","enabled","note"):
+        if k in d: users[uid][k] = d[k]
+    save_users(users)
+    return jsonify({"ok":True,"user":users[uid]})
+
+@app.route("/api/users/<uid>/generate", methods=["POST"])
+@login_required
+def api_user_generate(uid):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False,"error":"User not found"})
+    user = users[uid]
+    if not user.get("enabled", True):
+        return jsonify({"ok":False,"error":"کاربر غیرفعال است"})
+
+    ip = get_server_ip()
+    configs = []; inbounds = []
+    u_uuid = user["uuid"]
+    u_pass = user["password"]
+    sfx    = f"-{user['name']}"
+    ts     = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    reality_dests = [
+        {"dest":"www.google.com:443","sni":"www.google.com","fp":"chrome"},
+        {"dest":"www.apple.com:443","sni":"www.apple.com","fp":"safari"},
+        {"dest":"discord.com:443","sni":"discord.com","fp":"firefox"},
+        {"dest":"cdn.jsdelivr.net:443","sni":"cdn.jsdelivr.net","fp":"chrome"},
+        {"dest":"www.sony.com:443","sni":"www.sony.com","fp":"chrome"},
+        {"dest":"chat.openai.com:443","sni":"chat.openai.com","fp":"chrome"},
+        {"dest":"www.speedtest.net:443","sni":"www.speedtest.net","fp":"chrome"},
+        {"dest":"www.cloudflare.com:443","sni":"www.cloudflare.com","fp":"chrome"},
+    ]
+    for rd in reality_dests:
+        priv,pub = get_reality_keys()
+        rd["priv_key"]=priv; rd["pub_key"]=pub; rd["short_id"]=new_uuid()[:8]
+
+    cf_ports = [443,2053,2083,2087,2096,8443]
+    sni_list = [
+        {"sni":DOMAIN,                 "fp":"chrome",  "label":"Domain"},
+        {"sni":"www.google.com",       "fp":"chrome",  "label":"Google"},
+        {"sni":"www.apple.com",        "fp":"safari",  "label":"Apple"},
+        {"sni":"chat.openai.com",      "fp":"chrome",  "label":"ChatGPT"},
+        {"sni":"www.sony.com",         "fp":"chrome",  "label":"Sony"},
+        {"sni":"www.cloudflare.com",   "fp":"chrome",  "label":"Cloudflare"},
+        {"sni":"cdn.discordapp.com",   "fp":"firefox", "label":"Discord"},
+        {"sni":"www.speedtest.net",    "fp":"chrome",  "label":"Speedtest"},
+    ]
+    cf_clean_ips = [
+        "104.16.0.1","104.17.0.1","104.18.0.1","104.19.0.1",
+        "172.64.0.1","172.65.0.1","172.66.0.1",
+        "162.159.0.1","162.159.36.1",
+        "188.114.96.1","188.114.97.1",
+    ]
+
+    def add(name, proto, **kw):
+        cfg = {"name":name,"protocol":proto,"created_at":ts,**kw}
+        if proto=="vless":         cfg["link"]=vless_link(cfg)
+        elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
+        elif proto=="trojan":      cfg["link"]=trojan_link(cfg)
+        elif proto=="shadowsocks": cfg["link"]=ss_link(cfg)
+        elif proto=="tuic":        cfg["link"]=tuic_link(cfg)
+        elif proto=="hysteria2":   cfg["link"]=hysteria2_link(cfg)
+        else: cfg["link"]=""
+        configs.append(cfg)
+        if proto in ("vless","vmess","trojan","shadowsocks"):
+            ib=build_inbound(cfg)
+            if ib: inbounds.append(ib)
+
+    # VLESS
+    for p in cf_ports:
+        add(f"VLESS-WS-CF-{p}{sfx}","vless",network="ws",tls="tls",port=p,path="/vless-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
+    for sni_info in sni_list[1:4]:
+        for cf_ip in cf_clean_ips[:3]:
+            add(f"VLESS-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vless",network="ws",tls="tls",port=443,path="/vless-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+    for sni_info in sni_list[:4]:
+        add(f"VLESS-gRPC-{sni_info['label']}{sfx}","vless",network="grpc",tls="tls",port=443,service_name="vless-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+    for sni_info in sni_list[:3]:
+        add(f"VLESS-HU-{sni_info['label']}-8443{sfx}","vless",network="httpupgrade",tls="tls",port=8443,path="/vless-hu",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VLESS-TCP-TLS-IP{sfx}","vless",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VLESS-WS-TLS-IP{sfx}","vless",network="ws",tls="tls",port=8443,path="/vless-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VLESS-HU-TLS-IP{sfx}","vless",network="httpupgrade",tls="tls",port=2087,path="/vless-hu",sni=DOMAIN,fp="edge",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VLESS-TCP-NOTLS-IP{sfx}","vless",network="tcp",tls="none",port=10086,sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+    for rd in reality_dests:
+        lbl=rd["sni"].split(".")[-2].upper()
+        add(f"VLESS-REALITY-{lbl}{sfx}","vless",network="tcp",tls="reality",port=443,sni=rd["sni"],fp=rd["fp"],flow="xtls-rprx-vision",address=ip,id=u_uuid,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
+
+    # VMess
+    for p in cf_ports:
+        add(f"VMess-WS-CF-{p}{sfx}","vmess",network="ws",tls="tls",port=p,path="/vmess-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
+    for sni_info in sni_list[1:4]:
+        for cf_ip in cf_clean_ips[3:6]:
+            add(f"VMess-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vmess",network="ws",tls="tls",port=443,path="/vmess-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+    for sni_info in sni_list[:3]:
+        add(f"VMess-gRPC-{sni_info['label']}{sfx}","vmess",network="grpc",tls="tls",port=443,service_name="vmess-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VMess-TCP-TLS-IP{sfx}","vmess",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VMess-WS-TLS-IP{sfx}","vmess",network="ws",tls="tls",port=8443,path="/vmess-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VMess-WS-NOTLS-IP{sfx}","vmess",network="ws",tls="none",port=10087,path="/vmess-ws",sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+
+    # Trojan
+    for p in cf_ports:
+        add(f"Trojan-WS-CF-{p}{sfx}","trojan",network="ws",tls="tls",port=p,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,password=u_pass,connection_type="domain")
+    for sni_info in sni_list[1:3]:
+        add(f"Trojan-WS-{sni_info['label']}-443{sfx}","trojan",network="ws",tls="tls",port=443,path="/trojan-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,password=u_pass,connection_type="domain")
+    for sni_info in sni_list[:3]:
+        add(f"Trojan-gRPC-{sni_info['label']}{sfx}","trojan",network="grpc",tls="tls",port=443,service_name="trojan-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,password=u_pass,connection_type="domain")
+    add(f"Trojan-TCP-TLS-IP{sfx}","trojan",network="tcp",tls="tls",port=2096,sni=DOMAIN,fp="firefox",address=ip,password=u_pass,connection_type="direct_ip")
+    add(f"Trojan-WS-TLS-IP{sfx}","trojan",network="ws",tls="tls",port=8443,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=ip,password=u_pass,connection_type="direct_ip")
+    for rd in reality_dests[:3]:
+        lbl=rd["sni"].split(".")[-2].upper()
+        add(f"Trojan-REALITY-{lbl}{sfx}","trojan",network="tcp",tls="reality",port=443,sni=rd["sni"],fp=rd["fp"],address=ip,password=u_pass,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
+
+    # SS
+    ss_pw2=base64.b64encode(secrets.token_bytes(32)).decode()
+    for sv in [
+        {"name":f"SS-chacha20{sfx}",    "method":"chacha20-ietf-poly1305",  "port":8388,"password":u_pass},
+        {"name":f"SS-aes256{sfx}",      "method":"aes-256-gcm",             "port":8389,"password":new_password(16)},
+        {"name":f"SS-2022-blake3{sfx}", "method":"2022-blake3-aes-256-gcm", "port":8390,"password":ss_pw2},
+    ]:
+        add(**{**sv,"protocol":"shadowsocks","network":"tcp","tls":"none","address":ip,"connection_type":"direct_ip"})
+
+    # TUIC
+    tuic_id=new_uuid(); tuic_pw=new_password(16)
+    for p,addr,ct,lbl in [(443,ip,"direct_ip","IP"),(2096,DOMAIN,"domain","CF")]:
+        add(f"TUIC-v5-{lbl}-{p}{sfx}","tuic",network="udp",tls="tls",port=p,sni=DOMAIN,id=tuic_id,password=tuic_pw,address=addr,connection_type=ct,congestion="bbr")
+    for sni_info in sni_list[1:4]:
+        add(f"TUIC-v5-{sni_info['label']}{sfx}","tuic",network="udp",tls="tls",port=443,sni=sni_info["sni"],id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
+
+    # Hysteria2
+    hy2_pw=new_password(20); hy2_obfs=new_password(16)
+    for p,sni_info in [(443,sni_list[0]),(8443,sni_list[1]),(2053,sni_list[2]),(2096,sni_list[3])]:
+        add(f"Hysteria2-{sni_info['label']}-{p}{sfx}","hysteria2",network="udp",tls="tls",port=p,sni=sni_info["sni"],password=hy2_pw,address=ip,connection_type="direct_ip")
+    add(f"Hysteria2-Obfs{sfx}","hysteria2",network="udp",tls="tls",port=19999,sni=DOMAIN,password=hy2_pw,obfs="salamander",obfs_password=hy2_obfs,address=ip,connection_type="direct_ip")
+    add(f"Hysteria2-CF{sfx}","hysteria2",network="udp",tls="tls",port=443,sni=DOMAIN,password=hy2_pw,address=DOMAIN,connection_type="domain")
+    for cf_ip in cf_clean_ips[:4]:
+        add(f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}{sfx}","hysteria2",network="udp",tls="tls",port=443,sni=sni_list[1]["sni"],password=hy2_pw,address=cf_ip,connection_type="cf_ip")
+
+    # Apply to Xray
+    write_xray_config(inbounds)
+    users[uid]["configs"] = configs
+    save_users(users)
+    return jsonify({"ok":True,"count":len(configs),"configs":configs})
+
+@app.route("/api/users/<uid>/export/<fmt>")
+@login_required
+def api_user_export(uid, fmt):
+    users = load_users()
+    if uid not in users: return jsonify({"ok":False})
+    raw = [c.get("link","") for c in users[uid].get("configs",[]) if c.get("link")]
+    joined = "\n".join(raw)
+    if fmt == "b64":
+        ct = base64.b64encode(joined.encode()).decode()
+        fn = f"{users[uid]['name']}_sub.txt"
+    else:
+        ct = joined
+        fn = f"{users[uid]['name']}_links.txt"
+    return Response(ct, mimetype="text/plain",
+        headers={"Content-Disposition":f"attachment; filename={fn}"})
+
+# ── Traffic Stats ──────────────────────────────────────────────
+@app.route("/api/stats")
+@login_required
+def api_stats():
+    try:
+        result = subprocess.run([XRAY_BIN,"api","statsquery","--server=127.0.0.1:10085"],
+                                capture_output=True, text=True, timeout=5)
+        data = json.loads(result.stdout)
+        stats = {}
+        for item in data.get("stat",[]):
+            name = item.get("name",""); val = int(item.get("value",0))
+            if "inbound>>>" in name:
+                parts = name.split(">>>")
+                tag = parts[1] if len(parts)>1 else name
+                direction = parts[3] if len(parts)>3 else ""
+                if tag not in stats: stats[tag]={"up":0,"down":0}
+                if "uplink" in direction:   stats[tag]["up"]=val
+                elif "downlink" in direction: stats[tag]["down"]=val
+        def fmt(b):
+            for u in ["B","KB","MB","GB","TB"]:
+                if b<1024: return f"{b:.1f} {u}"
+                b/=1024
+            return f"{b:.2f} PB"
+        return jsonify({"ok":True,"stats":{
+            tag:{"up":fmt(s["up"]),"down":fmt(s["down"]),"up_raw":s["up"],"down_raw":s["down"]}
+            for tag,s in stats.items()
+        }})
+    except:
+        return jsonify({"ok":True,"stats":{}})
+
+# ── Update API ─────────────────────────────────────────────────
+@app.route("/api/update", methods=["POST"])
+@login_required
+def api_update():
+    results = []
+    try:
+        import urllib.request as ur
+        for fname, dest in [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
+                             ("index.html", PANEL_DIR/"templates"/"index.html")]:
+            req = ur.Request(f"{GITHUB_RAW}/{fname}", headers={"User-Agent":"MasterPanel/4.0"})
+            with ur.urlopen(req, timeout=15) as r: dest.write_bytes(r.read())
+            results.append(f"OK: {fname}")
+        import subprocess as sp
+        sp.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
+        return jsonify({"ok":True,"results":results,"message":"آپدیت انجام شد — رفرش کنید"})
     except Exception as e:
-        log(f"APScheduler unavailable ({e}); using thread fallback.")
+        return jsonify({"ok":False,"error":str(e),"results":results})
 
-        def _monitor_loop():
-            while True:
-                time.sleep(interval)
-                try:
-                    run_monitor()
-                except Exception as ex:
-                    log(f"monitor loop error: {ex}")
+@app.route("/api/update/check")
+@login_required
+def api_update_check():
+    try:
+        import urllib.request as ur
+        req = ur.Request(f"{GITHUB_RAW}/version.txt", headers={"User-Agent":"MasterPanel/4.0"})
+        with ur.urlopen(req, timeout=5) as r: latest = r.read().decode().strip()
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":latest,"update_available":latest!=CURRENT_VERSION})
+    except:
+        return jsonify({"ok":True,"current":CURRENT_VERSION,"latest":"unknown","update_available":False})
 
-        def _backup_loop():
-            last_day = None
-            while True:
-                time.sleep(60)
-                now = datetime.now()
-                if now.hour == backup_hour and now.date() != last_day:
-                    last_day = now.date()
-                    try:
-                        tg_backup()
-                    except Exception as ex:
-                        log(f"backup loop error: {ex}")
-
-        threading.Thread(target=_monitor_loop, daemon=True).start()
-        threading.Thread(target=_backup_loop, daemon=True).start()
-
-
-# ══════════════════════════════════════════════════════════════════
-#  Bootstrap (runs on import too, so any WSGI launcher works)
-# ══════════════════════════════════════════════════════════════════
-init_db()
-_fs = get_setting("flask_secret")
-if not _fs:
-    _fs = secrets.token_hex(32)
-    set_setting("flask_secret", _fs)
-app.secret_key = _fs
-
+# ── Run ───────────────────────────────────────────────────────
 if __name__ == "__main__":
     import logging
+    from datetime import timedelta
+    app.permanent_session_lifetime = timedelta(days=30)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    log(f"[MasterPanel v3.0] Starting on port {PANEL_PORT}")
-    start_background()
-    app.run(host="0.0.0.0", port=PANEL_PORT, debug=False, threaded=True)
+    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on port {PANEL_PORT}")
+    app.run(host="0.0.0.0", port=PANEL_PORT, debug=False)
