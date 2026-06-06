@@ -44,7 +44,7 @@ XRAY_BIN     = CFG.get("XRAY_BIN", "/usr/local/bin/xray")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-CURRENT_VERSION = "4.1.0"
+CURRENT_VERSION = "4.1.1"
 GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
 def serve_html():
@@ -1114,48 +1114,53 @@ def api_user_generate(uid):
             ib=build_inbound(cfg)
             if ib: inbounds.append(ib)
 
+    # Unique port per (protocol, network) — same plan as generate_all_configs
+    P = {"vless_ws":443,"vless_grpc":2053,"vless_hu":2083,"vless_tcp":2087,
+         "vmess_ws":2096,"vmess_grpc":8443,"vmess_hu":2095,
+         "trojan_ws":2052,"trojan_grpc":2082,"trojan_tcp":2086,
+         "vless_ntls":10086,"vmess_ntls":10087}
+
     # VLESS
-    for p in cf_ports:
-        add(f"VLESS-WS-CF-{p}{sfx}","vless",network="ws",tls="tls",port=p,path="/vless-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
-    for sni_info in sni_list[1:4]:
+    add(f"VLESS-WS-CF-Domain{sfx}","vless",network="ws",tls="tls",port=P["vless_ws"],path="/vless-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
+    for sni_info in sni_list[1:5]:
         for cf_ip in cf_clean_ips[:3]:
-            add(f"VLESS-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vless",network="ws",tls="tls",port=443,path="/vless-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+            add(f"VLESS-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vless",network="ws",tls="tls",port=P["vless_ws"],path="/vless-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+    add(f"VLESS-WS-TLS-IP{sfx}","vless",network="ws",tls="tls",port=P["vless_ws"],path="/vless-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
     for sni_info in sni_list[:4]:
-        add(f"VLESS-gRPC-{sni_info['label']}{sfx}","vless",network="grpc",tls="tls",port=443,service_name="vless-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+        add(f"VLESS-gRPC-{sni_info['label']}{sfx}","vless",network="grpc",tls="tls",port=P["vless_grpc"],service_name="vless-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
     for sni_info in sni_list[:3]:
-        add(f"VLESS-HU-{sni_info['label']}-8443{sfx}","vless",network="httpupgrade",tls="tls",port=8443,path="/vless-hu",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VLESS-TCP-TLS-IP{sfx}","vless",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-WS-TLS-IP{sfx}","vless",network="ws",tls="tls",port=8443,path="/vless-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-HU-TLS-IP{sfx}","vless",network="httpupgrade",tls="tls",port=2087,path="/vless-hu",sni=DOMAIN,fp="edge",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VLESS-TCP-NOTLS-IP{sfx}","vless",network="tcp",tls="none",port=10086,sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    for rd in reality_dests:
+        add(f"VLESS-HU-{sni_info['label']}{sfx}","vless",network="httpupgrade",tls="tls",port=P["vless_hu"],path="/vless-hu",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VLESS-TCP-TLS-IP{sfx}","vless",network="tcp",tls="tls",port=P["vless_tcp"],sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
+    add(f"VLESS-TCP-NOTLS-IP{sfx}","vless",network="tcp",tls="none",port=P["vless_ntls"],sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+    reality_ports=[4431,4432,4433,4434,4435,4436,4437,4438]
+    for i,rd in enumerate(reality_dests):
         lbl=rd["sni"].split(".")[-2].upper()
-        add(f"VLESS-REALITY-{lbl}{sfx}","vless",network="tcp",tls="reality",port=443,sni=rd["sni"],fp=rd["fp"],flow="xtls-rprx-vision",address=ip,id=u_uuid,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
+        add(f"VLESS-REALITY-{lbl}{sfx}","vless",network="tcp",tls="reality",port=reality_ports[i],sni=rd["sni"],fp=rd["fp"],flow="xtls-rprx-vision",address=ip,id=u_uuid,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
 
     # VMess
-    for p in cf_ports:
-        add(f"VMess-WS-CF-{p}{sfx}","vmess",network="ws",tls="tls",port=p,path="/vmess-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VMess-WS-CF-Domain{sfx}","vmess",network="ws",tls="tls",port=P["vmess_ws"],path="/vmess-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,id=u_uuid,connection_type="domain")
     for sni_info in sni_list[1:4]:
         for cf_ip in cf_clean_ips[3:6]:
-            add(f"VMess-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vmess",network="ws",tls="tls",port=443,path="/vmess-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+            add(f"VMess-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","vmess",network="ws",tls="tls",port=P["vmess_ws"],path="/vmess-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,id=u_uuid,connection_type="cf_ip")
+    add(f"VMess-WS-TLS-IP{sfx}","vmess",network="ws",tls="tls",port=P["vmess_ws"],path="/vmess-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
     for sni_info in sni_list[:3]:
-        add(f"VMess-gRPC-{sni_info['label']}{sfx}","vmess",network="grpc",tls="tls",port=443,service_name="vmess-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
-    add(f"VMess-TCP-TLS-IP{sfx}","vmess",network="tcp",tls="tls",port=2053,sni=DOMAIN,fp="safari",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VMess-WS-TLS-IP{sfx}","vmess",network="ws",tls="tls",port=8443,path="/vmess-ws",sni=DOMAIN,fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
-    add(f"VMess-WS-NOTLS-IP{sfx}","vmess",network="ws",tls="none",port=10087,path="/vmess-ws",sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
+        add(f"VMess-gRPC-{sni_info['label']}{sfx}","vmess",network="grpc",tls="tls",port=P["vmess_grpc"],service_name="vmess-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VMess-HU-Domain{sfx}","vmess",network="httpupgrade",tls="tls",port=P["vmess_hu"],path="/vmess-hu",sni=DOMAIN,fp="firefox",address=DOMAIN,id=u_uuid,connection_type="domain")
+    add(f"VMess-WS-NOTLS-IP{sfx}","vmess",network="ws",tls="none",port=P["vmess_ntls"],path="/vmess-ws",sni="",fp="chrome",address=ip,id=u_uuid,connection_type="direct_ip")
 
     # Trojan
-    for p in cf_ports:
-        add(f"Trojan-WS-CF-{p}{sfx}","trojan",network="ws",tls="tls",port=p,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,password=u_pass,connection_type="domain")
-    for sni_info in sni_list[1:3]:
-        add(f"Trojan-WS-{sni_info['label']}-443{sfx}","trojan",network="ws",tls="tls",port=443,path="/trojan-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,password=u_pass,connection_type="domain")
+    add(f"Trojan-WS-CF-Domain{sfx}","trojan",network="ws",tls="tls",port=P["trojan_ws"],path="/trojan-ws",sni=DOMAIN,fp="chrome",address=DOMAIN,password=u_pass,connection_type="domain")
+    for sni_info in sni_list[1:4]:
+        for cf_ip in cf_clean_ips[6:9]:
+            add(f"Trojan-WS-{sni_info['label']}-{cf_ip.split('.')[-1]}{sfx}","trojan",network="ws",tls="tls",port=P["trojan_ws"],path="/trojan-ws",sni=sni_info["sni"],fp=sni_info["fp"],address=cf_ip,password=u_pass,connection_type="cf_ip")
+    add(f"Trojan-WS-TLS-IP{sfx}","trojan",network="ws",tls="tls",port=P["trojan_ws"],path="/trojan-ws",sni=DOMAIN,fp="chrome",address=ip,password=u_pass,connection_type="direct_ip")
     for sni_info in sni_list[:3]:
-        add(f"Trojan-gRPC-{sni_info['label']}{sfx}","trojan",network="grpc",tls="tls",port=443,service_name="trojan-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,password=u_pass,connection_type="domain")
-    add(f"Trojan-TCP-TLS-IP{sfx}","trojan",network="tcp",tls="tls",port=2096,sni=DOMAIN,fp="firefox",address=ip,password=u_pass,connection_type="direct_ip")
-    add(f"Trojan-WS-TLS-IP{sfx}","trojan",network="ws",tls="tls",port=8443,path="/trojan-ws",sni=DOMAIN,fp="chrome",address=ip,password=u_pass,connection_type="direct_ip")
-    for rd in reality_dests[:3]:
+        add(f"Trojan-gRPC-{sni_info['label']}{sfx}","trojan",network="grpc",tls="tls",port=P["trojan_grpc"],service_name="trojan-grpc",sni=sni_info["sni"],fp=sni_info["fp"],address=DOMAIN,password=u_pass,connection_type="domain")
+    add(f"Trojan-TCP-TLS-IP{sfx}","trojan",network="tcp",tls="tls",port=P["trojan_tcp"],sni=DOMAIN,fp="firefox",address=ip,password=u_pass,connection_type="direct_ip")
+    trojan_reality_ports=[4451,4452,4453,4454]
+    for i,rd in enumerate(reality_dests[:4]):
         lbl=rd["sni"].split(".")[-2].upper()
-        add(f"Trojan-REALITY-{lbl}{sfx}","trojan",network="tcp",tls="reality",port=443,sni=rd["sni"],fp=rd["fp"],address=ip,password=u_pass,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
+        add(f"Trojan-REALITY-{lbl}{sfx}","trojan",network="tcp",tls="reality",port=trojan_reality_ports[i],sni=rd["sni"],fp=rd["fp"],address=ip,password=u_pass,reality_dest=rd["dest"],priv_key=rd["priv_key"],public_key=rd["pub_key"],short_id=rd["short_id"],connection_type="direct_ip")
 
     # SS
     ss_pw2=base64.b64encode(secrets.token_bytes(32)).decode()
@@ -1164,23 +1169,22 @@ def api_user_generate(uid):
         {"name":f"SS-aes256{sfx}",      "method":"aes-256-gcm",             "port":8389,"password":new_password(16)},
         {"name":f"SS-2022-blake3{sfx}", "method":"2022-blake3-aes-256-gcm", "port":8390,"password":ss_pw2},
     ]:
-        add(**{**sv,"protocol":"shadowsocks","network":"tcp","tls":"none","address":ip,"connection_type":"direct_ip"})
+        add(sv["name"],"shadowsocks",network="tcp",tls="none",port=sv["port"],method=sv["method"],password=sv["password"],address=ip,connection_type="direct_ip")
 
-    # TUIC
+    # TUIC — separate server on port 8500
     tuic_id=new_uuid(); tuic_pw=new_password(16)
-    for p,addr,ct,lbl in [(443,ip,"direct_ip","IP"),(2096,DOMAIN,"domain","CF")]:
-        add(f"TUIC-v5-{lbl}-{p}{sfx}","tuic",network="udp",tls="tls",port=p,sni=DOMAIN,id=tuic_id,password=tuic_pw,address=addr,connection_type=ct,congestion="bbr")
+    add(f"TUIC-v5-IP{sfx}","tuic",network="udp",tls="tls",port=8500,sni=DOMAIN,id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
     for sni_info in sni_list[1:4]:
-        add(f"TUIC-v5-{sni_info['label']}{sfx}","tuic",network="udp",tls="tls",port=443,sni=sni_info["sni"],id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
+        add(f"TUIC-v5-{sni_info['label']}{sfx}","tuic",network="udp",tls="tls",port=8500,sni=sni_info["sni"],id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
 
-    # Hysteria2
+    # Hysteria2 — separate server on port 8600
     hy2_pw=new_password(20); hy2_obfs=new_password(16)
-    for p,sni_info in [(443,sni_list[0]),(8443,sni_list[1]),(2053,sni_list[2]),(2096,sni_list[3])]:
-        add(f"Hysteria2-{sni_info['label']}-{p}{sfx}","hysteria2",network="udp",tls="tls",port=p,sni=sni_info["sni"],password=hy2_pw,address=ip,connection_type="direct_ip")
-    add(f"Hysteria2-Obfs{sfx}","hysteria2",network="udp",tls="tls",port=19999,sni=DOMAIN,password=hy2_pw,obfs="salamander",obfs_password=hy2_obfs,address=ip,connection_type="direct_ip")
-    add(f"Hysteria2-CF{sfx}","hysteria2",network="udp",tls="tls",port=443,sni=DOMAIN,password=hy2_pw,address=DOMAIN,connection_type="domain")
+    add(f"Hysteria2-IP{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=DOMAIN,password=hy2_pw,address=ip,connection_type="direct_ip")
+    for sni_info in sni_list[1:4]:
+        add(f"Hysteria2-{sni_info['label']}{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=sni_info["sni"],password=hy2_pw,address=ip,connection_type="direct_ip")
+    add(f"Hysteria2-Obfs{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=DOMAIN,password=hy2_pw,obfs="salamander",obfs_password=hy2_obfs,address=ip,connection_type="direct_ip")
     for cf_ip in cf_clean_ips[:4]:
-        add(f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}{sfx}","hysteria2",network="udp",tls="tls",port=443,sni=sni_list[1]["sni"],password=hy2_pw,address=cf_ip,connection_type="cf_ip")
+        add(f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=sni_list[1]["sni"],password=hy2_pw,address=cf_ip,connection_type="cf_ip")
 
     # Apply to Xray
     write_xray_config(inbounds)
