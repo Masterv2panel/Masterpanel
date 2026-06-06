@@ -82,7 +82,7 @@ cmd_status() {
     echo -e "${WHITE}── Network ─────────────────────────────${NC}"
     IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     echo -e "  Server IP : $IP"
-    echo -e "  Panel URL : ${CYAN}http://$IP:${PANEL_PORT:-9090}${NC}"
+    echo -e "  Panel URL : ${CYAN}https://$IP:${PANEL_PORT:-9090}${NC}"
     echo ""
 }
 

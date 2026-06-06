@@ -188,6 +188,9 @@ obtain_ssl() {
     fuser -k 80/tcp 2>/dev/null || true
     sleep 1
 
+    # NOTE: if the domain is proxied through Cloudflare (orange cloud), the
+    # HTTP-01 challenge on port 80 may fail. Set the DNS record to "DNS only"
+    # (grey cloud) during install, then re-enable the proxy afterwards.
     certbot certonly --standalone \
         --non-interactive --agree-tos \
         --register-unsafely-without-email \
@@ -197,10 +200,14 @@ obtain_ssl() {
     KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
 
     if [[ ! -f "$CERT_PATH" ]]; then
-        log_error "SSL failed. Check DNS and port 80."
-        exit 1
+        log_warn "Let's Encrypt failed (Cloudflare proxy or DNS/port 80)."
+        log_warn "Continuing — panel will use a self-signed HTTPS cert."
+        log_warn "You can issue a real cert later: bash /opt/masterpanel/mp.sh renew-ssl"
+        SSL_OK=0
+        return 0
     fi
     chmod 644 "$CERT_PATH" "$KEY_PATH" 2>/dev/null || true
+    SSL_OK=1
     log_info "SSL obtained."
 }
 
@@ -458,12 +465,16 @@ print_summary() {
     echo -e "${GREEN}║      MasterPanel v4.0 — Installed! ✓           ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${WHITE}Panel URL :${NC} ${CYAN}http://$SERVER_IP:$PANEL_PORT${NC}"
+    echo -e "  ${WHITE}Panel URL :${NC} ${CYAN}https://$SERVER_IP:$PANEL_PORT${NC}"
     echo -e "  ${WHITE}Username  :${NC} ${CYAN}$PANEL_USER${NC}"
     echo -e "  ${WHITE}Domain    :${NC} ${CYAN}$DOMAIN${NC}"
     echo ""
-    echo -e "  ${YELLOW}⚠  Open panel with IP, NOT domain (CF blocks port 9090)${NC}"
-    echo -e "  ${GREEN}→  http://$SERVER_IP:$PANEL_PORT${NC}"
+    echo -e "  ${YELLOW}⚠  Open the panel by IP over HTTPS (NOT the domain).${NC}"
+    echo -e "  ${YELLOW}   Cloudflare does not proxy port 9090, so the domain won't work here.${NC}"
+    echo -e "  ${GREEN}→  https://$SERVER_IP:$PANEL_PORT${NC}"
+    if [[ "${SSL_OK:-0}" != "1" ]]; then
+        echo -e "  ${YELLOW}   (Panel uses a self-signed cert — accept the browser warning once.)${NC}"
+    fi
     echo ""
     echo -e "  ${WHITE}Installed:${NC}"
     echo -ne "  Xray      : "; $XRAY_DIR/xray version 2>/dev/null | head -1 || echo "OK"

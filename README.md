@@ -4,7 +4,7 @@
 
 **پنل مدیریت پروتکل‌های Xray با رابط فارسی**
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel/releases)
+[![Version](https://img.shields.io/badge/version-4.7.0-blue?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian-orange?style=for-the-badge)](https://github.com/Masterv2panel/Masterpanel)
 
@@ -68,9 +68,9 @@ bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main
 2. **نام کاربری پنل** — حداقل 4 کاراکتر
 3. **رمز عبور پنل** — حداقل 8 کاراکتر
 
-بعد از نصب، پنل روی `http://SERVER_IP:9090` در دسترس است.
+بعد از نصب، پنل روی `https://SERVER_IP:9090` در دسترس است (HTTPS مستقیم).
 
-> ⚠️ **مهم:** پنل را با **IP مستقیم** باز کنید، نه دامنه. Cloudflare پورت 9090 را پشتیبانی نمی‌کند.
+> ⚠️ **مهم:** پنل را با **IP مستقیم روی HTTPS** باز کنید، نه دامنه. Cloudflare پورت 9090 را پروکسی نمی‌کند. اگر گواهی واقعی صادر نشده باشد، پنل از گواهی self-signed استفاده می‌کند و باید یک‌بار هشدار مرورگر را بپذیرید.
 
 ---
 
@@ -78,7 +78,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main
 
 ### ۱. ورود به پنل
 ```
-http://YOUR_SERVER_IP:9090
+https://YOUR_SERVER_IP:9090
 ```
 
 ### ۲. ساخت کاربر

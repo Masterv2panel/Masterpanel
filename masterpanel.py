@@ -45,7 +45,7 @@ SUB_PORT     = CFG.get("SUB_PORT", "8081")
 CONFIGS_DIR  = PANEL_DIR / "configs"
 CONFIGS_DIR.mkdir(exist_ok=True)
 XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
-CURRENT_VERSION = "4.6.0"
+CURRENT_VERSION = "4.7.0"
 GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
 def serve_html():
@@ -447,6 +447,20 @@ def generate_all_configs():
 
 
 # ── Xray Inbound Builder ──────────────────────────────────────
+def _effective_cert_paths():
+    """Return (cert, key) to use for TLS inbounds. Prefer the real domain cert;
+    if it's missing, fall back to the panel's self-signed cert so Xray/TUIC/HY2
+    still start (configs will work by IP; browser/SNI warnings are expected)."""
+    if CERT_PATH and KEY_PATH and Path(CERT_PATH).exists() and Path(KEY_PATH).exists():
+        return CERT_PATH, KEY_PATH
+    sc = PANEL_DIR / "panel_cert.pem"
+    sk = PANEL_DIR / "panel_key.pem"
+    if sc.exists() and sk.exists():
+        return str(sc), str(sk)
+    # Last resort: return the configured paths even if absent
+    return CERT_PATH, KEY_PATH
+
+
 def build_inbound(cfg):
     proto = cfg["protocol"]
     port  = cfg["port"]
@@ -484,8 +498,9 @@ def build_inbound(cfg):
 
     if tls == "tls":
         stream["security"] = "tls"
+        cert_f, key_f = _effective_cert_paths()
         stream["tlsSettings"] = {
-            "certificates": [{"certificateFile": CERT_PATH, "keyFile": KEY_PATH}],
+            "certificates": [{"certificateFile": cert_f, "keyFile": key_f}],
             "alpn": ["h2", "http/1.1"]
         }
     elif tls == "reality":
@@ -659,11 +674,12 @@ def write_tuic_config(configs):
     if not tuic_cfgs:
         return
     c = tuic_cfgs[0]
+    cert_f, key_f = _effective_cert_paths()
     conf = {
         "server": f"0.0.0.0:{c['port']}",
         "users": {c["id"]: c["password"]},
-        "certificate": CERT_PATH,
-        "private_key": KEY_PATH,
+        "certificate": cert_f,
+        "private_key": key_f,
         "congestion_controller": c.get("congestion","bbr"),
         "alpn": ["h3"],
         "log_level": "warn"
@@ -677,22 +693,18 @@ def write_hysteria2_config(configs):
     if not hy2_cfgs:
         return
     c = hy2_cfgs[0]
-    conf = {
-        "listen": f":{c['port']}",
-        "tls": {"cert": CERT_PATH, "key": KEY_PATH},
-        "auth": {"type": "password", "password": c["password"]},
-        "masquerade": {"type": "proxy", "proxy": {"url": "https://www.google.com", "rewriteHost": True}},
-        "quic": {"initStreamReceiveWindow": 8388608, "maxStreamReceiveWindow": 8388608},
-        "bandwidth": {"up": "1 gbps", "down": "1 gbps"},
-    }
-    if hy2_cfgs[2].get("obfs"):
-        conf["obfs"] = {"type": "salamander", "salamander": {"password": hy2_cfgs[2]["obfs_password"]}}
-    (CONFIGS_DIR / "hysteria2_config.yaml").write_text(
+    obfs_cfg = next((x for x in hy2_cfgs if x.get("obfs")), None)
+    cert_f, key_f = _effective_cert_paths()
+    yaml = (
         f"listen: :{c['port']}\n"
-        f"tls:\n  cert: {CERT_PATH}\n  key: {KEY_PATH}\n"
+        f"tls:\n  cert: {cert_f}\n  key: {key_f}\n"
         f"auth:\n  type: password\n  password: {c['password']}\n"
         f"masquerade:\n  type: proxy\n  proxy:\n    url: https://www.google.com\n    rewriteHost: true\n"
     )
+    if obfs_cfg:
+        yaml += (f"obfs:\n  type: salamander\n"
+                 f"  salamander:\n    password: {obfs_cfg['obfs_password']}\n")
+    (CONFIGS_DIR / "hysteria2_config.yaml").write_text(yaml)
 
 
 def export_all_links(configs):
@@ -780,7 +792,11 @@ def login_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("logged_in"):
+        # Allow trusted internal calls (the Telegram bot on localhost) that
+        # carry the X-Internal header. Everything else needs a logged-in session.
+        internal = (request.headers.get("X-Internal") == "1"
+                    and request.remote_addr in ("127.0.0.1", "::1"))
+        if not (session.get("logged_in") or internal):
             if request.path.startswith("/api/"):
                 return jsonify({"ok":False,"error":"Unauthorized"}), 401
             return redirect(url_for("login_page"))
@@ -827,7 +843,7 @@ def api_status():
     ip = get_server_ip()
     return jsonify({
         "xray": xs, "domain": DOMAIN, "server_ip": ip,
-        "panel_url": f"http://{ip}:{PANEL_PORT}",
+        "panel_url": f"https://{ip}:{PANEL_PORT}",
         "config_count": len(configs), "proto_counts": proto_counts,
         "ssl_valid": Path(CERT_PATH).exists() if CERT_PATH else False,
         "uptime": get_uptime(),
@@ -1199,6 +1215,14 @@ def api_user_generate(uid):
     if not user.get("enabled", True):
         return jsonify({"ok":False,"error":"کاربر غیرفعال است"})
 
+    # Which protocol(s) to build. "all" (or empty) = everything.
+    body = request.get_json(silent=True) or {}
+    proto_filter = (body.get("proto") or "all").lower()
+
+    # Ensure the user has a stable subscription token
+    if not user.get("sub_token"):
+        user["sub_token"] = new_password(24)
+
     ip = get_server_ip()
     configs = []; inbounds = []
     u_uuid = user["uuid"]
@@ -1240,7 +1264,13 @@ def api_user_generate(uid):
 
     u_email = f"{user['name']}-{uid[:8]}"
 
+    # Map UI proto choices to internal protocol names
+    _alias = {"ss":"shadowsocks","hy2":"hysteria2"}
+    want = _alias.get(proto_filter, proto_filter)
+
     def add(name, proto, **kw):
+        if want != "all" and proto != want:
+            return
         cfg = {"name":name,"protocol":proto,"created_at":ts,"email":u_email,**kw}
         if proto=="vless":         cfg["link"]=vless_link(cfg)
         elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
@@ -1326,11 +1356,42 @@ def api_user_generate(uid):
     for cf_ip in cf_clean_ips[:4]:
         add(f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=sni_list[1]["sni"],password=hy2_pw,address=cf_ip,connection_type="cf_ip")
 
-    # Apply to Xray
-    write_xray_config(inbounds)
-    users[uid]["configs"] = configs
+    # ── Merge with existing configs ───────────────────────────────
+    # If only one protocol was requested, keep this user's other-protocol
+    # configs instead of wiping them.
+    if want != "all":
+        kept = [c for c in user.get("configs", []) if c.get("protocol") != want]
+        user["configs"] = kept + configs
+    else:
+        user["configs"] = configs
     save_users(users)
-    return jsonify({"ok":True,"count":len(configs),"configs":configs})
+
+    # ── Rebuild Xray from ALL enabled users (don't drop other users) ──
+    rebuild_active_inbounds(users)
+
+    # ── Write TUIC + Hysteria2 server configs and (re)start them ──
+    try:
+        all_cfgs = []
+        for uu in users.values():
+            if uu.get("enabled", True):
+                all_cfgs += uu.get("configs", [])
+        tuic_cfgs = [c for c in all_cfgs if c.get("protocol") == "tuic"]
+        hy2_cfgs  = [c for c in all_cfgs if c.get("protocol") == "hysteria2"]
+        if tuic_cfgs:
+            write_tuic_config(tuic_cfgs)
+            subprocess.run(["systemctl","restart","tuic-server"], capture_output=True, timeout=15)
+        if hy2_cfgs:
+            write_hysteria2_config(hy2_cfgs)
+            subprocess.run(["systemctl","restart","hysteria2"], capture_output=True, timeout=15)
+    except Exception:
+        pass
+
+    # Build subscription URLs to return alongside the configs
+    https_sub = f"https://{DOMAIN}:{SUB_PORT}/sub/{user['sub_token']}"
+    http_sub  = f"https://{ip}:{PANEL_PORT}/sub/{user['sub_token']}"
+    return jsonify({"ok":True,"count":len(user['configs']),"configs":user['configs'],
+                    "sub_https":https_sub,"sub_http":http_sub,
+                    "sub_token":user['sub_token']})
 
 @app.route("/api/users/<uid>/export/<fmt>")
 @login_required
@@ -1360,7 +1421,7 @@ def api_user_suburl(uid):
         u["sub_token"] = new_password(24)
         save_users(users)
     https_url = f"https://{DOMAIN}:{SUB_PORT}/sub/{u['sub_token']}"
-    http_url  = f"http://{get_server_ip()}:{PANEL_PORT}/sub/{u['sub_token']}"
+    http_url  = f"https://{get_server_ip()}:{PANEL_PORT}/sub/{u['sub_token']}"
     return jsonify({"ok": True, "https": https_url, "http": http_url})
 
 # ── Live System Monitoring ─────────────────────────────────────
@@ -1690,10 +1751,47 @@ def api_update_check():
                     "error":err})
 
 # ── Run ───────────────────────────────────────────────────────
+def _build_ssl_context():
+    """Serve the panel over real HTTPS using the Let's Encrypt cert when
+    available. Falls back to a self-signed cert (generated once) so the panel
+    is ALWAYS HTTPS — this is required for navigator.clipboard and stable
+    sessions when opening the panel by IP. Returns an ssl.SSLContext or None."""
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # 1) Prefer the real domain cert if it exists on disk
+        if CERT_PATH and KEY_PATH and Path(CERT_PATH).exists() and Path(KEY_PATH).exists():
+            ctx.load_cert_chain(CERT_PATH, KEY_PATH)
+            print(f"[MasterPanel] HTTPS using domain cert: {CERT_PATH}")
+            return ctx
+        # 2) Otherwise generate / reuse a self-signed cert for the panel
+        sc = PANEL_DIR / "panel_cert.pem"
+        sk = PANEL_DIR / "panel_key.pem"
+        if not (sc.exists() and sk.exists()):
+            ip = get_server_ip()
+            subprocess.run([
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(sk), "-out", str(sc), "-days", "3650",
+                "-subj", f"/CN={ip}",
+                "-addext", f"subjectAltName=IP:{ip}"
+            ], capture_output=True, timeout=30)
+            sc.chmod(0o644); sk.chmod(0o600)
+        if sc.exists() and sk.exists():
+            ctx.load_cert_chain(str(sc), str(sk))
+            print("[MasterPanel] HTTPS using self-signed panel cert")
+            return ctx
+    except Exception as e:
+        print(f"[MasterPanel] SSL setup failed, falling back to HTTP: {e}")
+    return None
+
+
 if __name__ == "__main__":
     import logging
     from datetime import timedelta
     app.permanent_session_lifetime = timedelta(days=30)
+    # Session cookie works under HTTPS; SameSite=Lax avoids cross-site drops
+    app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True)
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on port {PANEL_PORT}")
-    app.run(host="0.0.0.0", port=PANEL_PORT, debug=False)
+    ssl_ctx = _build_ssl_context()
+    scheme = "https" if ssl_ctx else "http"
+    print(f"[MasterPanel v{CURRENT_VERSION}] Starting on {scheme}://0.0.0.0:{PANEL_PORT}")
+    app.run(host="0.0.0.0", port=PANEL_PORT, debug=False, ssl_context=ssl_ctx)

@@ -982,6 +982,17 @@ nav{flex:1;padding:12px;overflow-y:auto}
       <div class="modal-title" id="ucfg-title">کانفیگ‌ها</div>
       <button class="modal-close" onclick="document.getElementById('ucfg-modal').style.display='none'">✕</button>
     </div>
+    <!-- Subscription + copy-all bar — always at the top -->
+    <div id="ucfg-subbar" style="background:rgba(79,110,247,.08);border:1px solid rgba(79,110,247,.25);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:8px;letter-spacing:.5px;text-transform:uppercase">🔗 لینک سابسکریپشن</div>
+      <div id="ucfg-suburl" style="font-family:monospace;font-size:12px;word-break:break-all;color:var(--text);background:rgba(0,0,0,.2);border-radius:8px;padding:9px;margin-bottom:10px">— ابتدا کانفیگ بسازید —</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p btn-sm" onclick="copySubUrlTop()">📋 کپی لینک ساب</button>
+        <button class="btn btn-success btn-sm" onclick="copyUserSub()">📋 کپی همه کانفیگ‌ها (Base64)</button>
+        <button class="btn btn-g btn-sm" onclick="copyAllUserLinks()">📄 کپی متن لینک‌ها</button>
+        <button class="btn btn-g btn-sm" onclick="dlUserLinks()">⬇ دانلود</button>
+      </div>
+    </div>
     <div style="background:rgba(255,255,255,.03);border:1px solid rgba(79,110,247,.1);border-radius:12px;padding:14px;margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:10px;letter-spacing:.5px;text-transform:uppercase">ساخت کانفیگ</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
@@ -993,11 +1004,6 @@ nav{flex:1;padding:12px;overflow-y:auto}
         <button class="btn btn-g btn-sm" style="color:#22d3ee;border-color:rgba(6,182,212,.3)" onclick="genForUser('tuic')">TUIC</button>
         <button class="btn btn-g btn-sm" style="color:#c084fc;border-color:rgba(168,85,247,.3)" onclick="genForUser('hy2')">Hysteria2</button>
       </div>
-    </div>
-    <div id="ucfg-export" style="display:none;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <button class="btn btn-p btn-sm" onclick="copySubUrl()">🔗 لینک سابسکریپشن (HTTPS)</button>
-      <button class="btn btn-success btn-sm" onclick="copyUserSub()">📋 کپی سابسکریپشن</button>
-      <button class="btn btn-g btn-sm" onclick="dlUserLinks()">⬇ دانلود</button>
     </div>
     <div id="ucfg-list"><div class="empty"><div class="empty-ico">⚙️</div><h4>کانفیگی ندارد</h4></div></div>
   </div>
@@ -1303,8 +1309,31 @@ function showQR(idx) {
   document.getElementById('qr-modal').style.display='flex';
 }
 function closeModal(){document.getElementById('qr-modal').style.display='none';}
-function copyLink(){navigator.clipboard.writeText(curLink).then(()=>toast('✅ کپی شد'));}
-function copyCfg(idx){const c=allCfgs[idx];if(c&&c.link)navigator.clipboard.writeText(c.link).then(()=>toast('✅ کپی شد'));}
+// Robust clipboard copy — works on HTTPS, and falls back to execCommand
+// for HTTP / older browsers so "copy" never silently fails.
+function copyText(text, okMsg){
+  okMsg = okMsg || '✅ کپی شد';
+  const done = ()=>toast(okMsg);
+  const fail = ()=>fallbackCopy(text, okMsg);
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(text).then(done).catch(fail);
+    } else { fallbackCopy(text, okMsg); }
+  }catch(e){ fallbackCopy(text, okMsg); }
+}
+function fallbackCopy(text, okMsg){
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=text;
+    ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast(ok ? okMsg : '⚠️ کپی نشد — دستی انتخاب کنید');
+  }catch(e){ toast('⚠️ کپی نشد — دستی انتخاب کنید'); }
+}
+function copyLink(){copyText(curLink);}
+function copyCfg(idx){const c=allCfgs[idx];if(c&&c.link)copyText(c.link);}
 
 // ── Helpers ───────────────────────────────────────────────────
 function showLoading(m){document.getElementById('lov-msg').textContent=m||'...';document.getElementById('lov').style.display='flex';}
@@ -1416,24 +1445,34 @@ async function resetTraffic(uid){
   }catch(e){toast('❌ خطای شبکه');}
 }
 
+let curSubUrl='';
 async function openUserCfgs(uid){
   const d=await(await fetch('/api/users')).json();
   curUser=d.users.find(u=>u.id===uid);
   if(!curUser)return;
   userCfgs=curUser.configs||[];
   document.getElementById('ucfg-title').textContent='کانفیگ‌های '+curUser.name;
+  curSubUrl='';
+  document.getElementById('ucfg-suburl').textContent='— ابتدا کانفیگ بسازید —';
   renderUserCfgs();
   document.getElementById('ucfg-modal').style.display='flex';
+  loadUserSubUrl();   // fetch the subscription link in the background
+}
+
+async function loadUserSubUrl(){
+  if(!curUser)return;
+  try{
+    const d=await(await fetch('/api/users/'+curUser.id+'/suburl')).json();
+    if(d.ok){curSubUrl=d.https;document.getElementById('ucfg-suburl').textContent=d.https;}
+  }catch(e){}
 }
 
 function renderUserCfgs(){
   const list=document.getElementById('ucfg-list');
-  const exp=document.getElementById('ucfg-export');
   if(!userCfgs.length){
-    list.innerHTML=`<div class="empty"><div class="empty-ico">⚙️</div><h4>کانفیگی ندارد</h4><p>روی «ساخت همه» کلیک کنید</p></div>`;
-    exp.style.display='none';return;
+    list.innerHTML=`<div class="empty"><div class="empty-ico">⚙️</div><h4>کانفیگی ندارد</h4><p>روی «همه» کلیک کنید تا ساخته شود</p></div>`;
+    return;
   }
-  exp.style.display='flex';
   list.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>پروتکل</th><th>نوع</th><th>پورت</th><th></th></tr></thead><tbody>${userCfgs.map((c,i)=>`<tr><td style="font-size:12px;font-weight:600;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</td><td><span class="badge b-${c.protocol}">${c.protocol.toUpperCase()}</span></td><td>${c.connection_type==='domain'?'<span class="badge b-cdn">☁️</span>':c.connection_type==='cf_ip'?'<span class="badge b-cdn">CF</span>':'<span class="badge b-ip">🖥</span>'}</td><td style="font-family:monospace;font-size:12px">${c.port}</td><td><div style="display:flex;gap:4px"><button class="btn btn-g btn-sm" onclick="showUserQR(${i})">QR</button><button class="btn btn-g btn-sm" onclick="copyUserCfg(${i})">📋</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
@@ -1443,21 +1482,29 @@ async function genForUser(proto){
   try{
     const d=await(await fetch('/api/users/'+curUser.id+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proto})})).json();
     hideLoading();
-    if(d.ok){userCfgs=d.configs;curUser.configs=d.configs;renderUserCfgs();toast('✅ '+d.configs.length+' کانفیگ ساخته شد');loadUsers();}
+    if(d.ok){
+      userCfgs=d.configs;curUser.configs=d.configs;
+      if(d.sub_https){curSubUrl=d.sub_https;document.getElementById('ucfg-suburl').textContent=d.sub_https;}
+      renderUserCfgs();
+      toast('✅ '+d.configs.length+' کانفیگ ساخته شد');
+      loadUsers();
+    }
     else toast('❌ '+(d.error||'خطا'));
   }catch(e){hideLoading();toast('❌ خطای شبکه');}
 }
 
 function showUserQR(i){const c=userCfgs[i];if(c)showQR2(c.link,c.name);}
-function copyUserCfg(i){const c=userCfgs[i];if(c&&c.link)navigator.clipboard.writeText(c.link).then(()=>toast('✅ کپی شد'));}
-function copyUserSub(){const links=userCfgs.map(c=>c.link).filter(Boolean).join('\n');navigator.clipboard.writeText(btoa(unescape(encodeURIComponent(links)))).then(()=>toast('✅ سابسکریپشن کپی شد'));}
+function copyUserCfg(i){const c=userCfgs[i];if(c&&c.link)copyText(c.link);}
+function copyUserSub(){const links=userCfgs.map(c=>c.link).filter(Boolean).join('\n');if(!links){toast('❌ ابتدا کانفیگ بسازید');return;}copyText(btoa(unescape(encodeURIComponent(links))),'✅ سابسکریپشن کپی شد');}
+function copySubUrlTop(){if(!curSubUrl){toast('❌ ابتدا کانفیگ بسازید');return;}copyText(curSubUrl,'✅ لینک ساب کپی شد');}
+function copyAllUserLinks(){const links=userCfgs.map(c=>c.link).filter(Boolean).join('\n');if(!links){toast('❌ ابتدا کانفیگ بسازید');return;}copyText(links,'✅ متن لینک‌ها کپی شد');}
 function dlUserLinks(){if(!curUser)return;const lines=userCfgs.map(c=>'# '+c.name+'\n'+(c.link||'')).join('\n\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=curUser.name+'_configs.txt';a.click();}
 async function copySubUrl(){
   if(!curUser)return;
   try{
     const d=await(await fetch('/api/users/'+curUser.id+'/suburl')).json();
     if(d.ok){
-      navigator.clipboard.writeText(d.https).then(()=>toast('✅ لینک HTTPS کپی شد'));
+      copyText(d.https,'✅ لینک HTTPS کپی شد');
       send_show_suburl(d.https,d.http);
     }else toast('❌ خطا');
   }catch(e){toast('❌ خطای شبکه');}

@@ -69,8 +69,18 @@ PANEL = load_conf()
 BOTCFG = load_bot_conf()
 TOKEN = BOTCFG.get("BOT_TOKEN", "")
 ADMIN_IDS = [int(x) for x in BOTCFG.get("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
-PANEL_URL = f"http://127.0.0.1:{PANEL.get('PANEL_PORT', '9090')}"
+# Panel now serves HTTPS (self-signed when no domain cert); talk to it over
+# loopback and skip cert verification. Carry X-Internal so login_required lets us in.
+PANEL_PORT_N = PANEL.get("PANEL_PORT", "9090")
+PANEL_URL = f"https://127.0.0.1:{PANEL_PORT_N}"
+INTERNAL_HEADERS = {"X-Internal": "1"}
 API = f"https://api.telegram.org/bot{TOKEN}"
+
+try:
+    import urllib3
+    urllib3.disable_warnings()
+except Exception:
+    pass
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -291,19 +301,16 @@ def handle_user_configs(chat_id, msg_id, user_id):
 def handle_user_generate(chat_id, msg_id, user_id):
     edit(chat_id, msg_id, "⏳ در حال ساخت کانفیگ‌ها...", None)
     try:
-        # Call panel API via session-less internal call by invoking the generator directly
         r = requests.post(f"{PANEL_URL}/api/users/{user_id}/generate",
-                         cookies={"session": "bot"}, timeout=60)
-        # The panel requires login; instead call the local generation
-        # Fallback: trigger via panel is auth-protected, so we generate inline
+                          headers=INTERNAL_HEADERS, json={"proto": "all"},
+                          verify=False, timeout=90)
         d = r.json() if r.status_code == 200 else {}
         if d.get("ok"):
             edit(chat_id, msg_id, f"✅ {d['count']} کانفیگ ساخته شد!",
                  [[{"text": "📱 مشاهده کانفیگ‌ها", "callback_data": f"ucfg_{user_id}"}]] + back_btn(f"user_{user_id}"))
         else:
             edit(chat_id, msg_id,
-                 "⚠️ ساخت از طریق بات نیاز به لاگین پنل دارد.\n"
-                 "لطفاً از خود پنل وب کانفیگ بسازید.",
+                 f"⚠️ ساخت ناموفق: {d.get('error','نامشخص')}",
                  back_btn(f"user_{user_id}"))
     except Exception as e:
         edit(chat_id, msg_id, f"❌ خطا: {e}", back_btn(f"user_{user_id}"))
