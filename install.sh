@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #   MasterPanel Installer v4.0
-#   Protocols: Xray + TUIC v5 + Hysteria2
+#   Protocols: Xray
 # ============================================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -22,7 +22,7 @@ print_banner() {
     echo -e "${CYAN}"
     echo "  ╔═══════════════════════════════════════════╗"
     echo "  ║       MasterPanel Installer v4.0          ║"
-    echo "  ║   Xray + TUIC v5 + Hysteria2              ║"
+    echo "  ║   Xray + Multi-Protocol                   ║"
     echo "  ╚═══════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -146,59 +146,12 @@ SVC
     log_info "Xray installed: $($XRAY_DIR/xray version | head -1)"
 }
 
-install_tuic() {
-    log_step "Installing TUIC v5..."
-    ARCH=$(uname -m)
-    [[ "$ARCH" == "aarch64" ]] && TUIC_ARCH="aarch64-unknown-linux-gnu" || TUIC_ARCH="x86_64-unknown-linux-gnu"
-
-    TUIC_VER=$(curl -s https://api.github.com/repos/EAimTY/tuic/releases/latest \
-        | jq -r '.tag_name' 2>/dev/null || echo "tuic-server-1.0.0")
-    TUIC_URL="https://github.com/EAimTY/tuic/releases/download/${TUIC_VER}/tuic-server-${TUIC_ARCH}"
-
-    if wget -q "$TUIC_URL" -O /tmp/tuic-server 2>/dev/null; then
-        mv /tmp/tuic-server /usr/local/bin/tuic-server
-        chmod +x /usr/local/bin/tuic-server
-        log_info "TUIC v5 installed."
-    else
-        log_warn "TUIC download failed — skipping."
-        touch /tmp/tuic_failed
-    fi
-}
-
-install_hysteria2() {
-    log_step "Installing Hysteria2..."
-    ARCH=$(uname -m)
-    [[ "$ARCH" == "aarch64" ]] && HY2_ARCH="arm64" || HY2_ARCH="amd64"
-
-    # Method 1: official installer (without --version flag)
-    if curl -fsSL https://get.hy2.sh/ -o /tmp/hy2_install.sh 2>/dev/null; then
-        bash /tmp/hy2_install.sh 2>&1 | tail -3
-        if command -v hysteria &>/dev/null || [[ -f /usr/local/bin/hysteria ]]; then
-            log_info "Hysteria2 installed: $(hysteria version 2>/dev/null | head -1 || echo 'OK')"
-            return
-        fi
-    fi
-
-    # Method 2: direct binary from GitHub
-    log_warn "Trying direct download..."
-    HY2_VER=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest \
-        | jq -r '.tag_name' 2>/dev/null | sed 's|app/||' || echo "v2.4.5")
-    HY2_URL="https://github.com/apernet/hysteria/releases/download/app%2F${HY2_VER}/hysteria-linux-${HY2_ARCH}"
-    if wget -q "$HY2_URL" -O /usr/local/bin/hysteria 2>/dev/null; then
-        chmod +x /usr/local/bin/hysteria
-        log_info "Hysteria2 installed (direct): $(/usr/local/bin/hysteria version 2>/dev/null | head -1 || echo 'OK')"
-    else
-        log_warn "Hysteria2 installation failed — skipping."
-        touch /tmp/hy2_failed
-    fi
-}
-
 obtain_ssl() {
     systemctl stop masterpanel 2>/dev/null || true
     fuser -k 80/tcp 2>/dev/null || true
     sleep 1
 
-    # ── Cert for the VPN domain (used by Xray/TUIC/HY2 inbounds) ──
+    # ── Cert for the VPN domain (used by Xray inbounds) ──
     log_step "Obtaining SSL for VPN domain: $DOMAIN..."
     certbot certonly --standalone \
         --non-interactive --agree-tos \
@@ -270,40 +223,56 @@ XRAY_BIN=$XRAY_DIR/xray
 CONF
 
     # Write version file
-    echo "4.0.0" > "$PANEL_DIR/version.txt"
+    echo "4.7.0" > "$PANEL_DIR/version.txt"
     log_info "Panel configured."
 }
 
 download_panel_files() {
     log_step "Downloading panel files from GitHub..."
 
-    # First try local files (if install.sh is run from downloaded folder)
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # First try local files (if running from extracted zip folder)
+    # NOTE: bash <(curl ...) sets BASH_SOURCE[0] to /dev/fd/N — not a real path.
+    # So we check if BASH_SOURCE is a real file before trusting SCRIPT_DIR.
+    SCRIPT_DIR=""
+    if [[ -f "${BASH_SOURCE[0]}" ]]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    fi
 
-    if [[ -f "$SCRIPT_DIR/masterpanel.py" ]] && [[ -f "$SCRIPT_DIR/index.html" ]]; then
-        log_info "Using local files..."
+    if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/masterpanel.py" && -f "$SCRIPT_DIR/index.html" ]]; then
+        log_info "Using local files from $SCRIPT_DIR..."
         cp "$SCRIPT_DIR/masterpanel.py" "$PANEL_DIR/masterpanel.py"
-        cp "$SCRIPT_DIR/index.html" "$PANEL_DIR/templates/index.html"
-        [[ -f "$SCRIPT_DIR/bot.py" ]] && cp "$SCRIPT_DIR/bot.py" "$PANEL_DIR/bot.py"
+        cp "$SCRIPT_DIR/index.html"     "$PANEL_DIR/templates/index.html"
+        [[ -f "$SCRIPT_DIR/bot.py" ]]   && cp "$SCRIPT_DIR/bot.py"   "$PANEL_DIR/bot.py"
+        [[ -f "$SCRIPT_DIR/mp.sh"  ]]   && cp "$SCRIPT_DIR/mp.sh"    "$PANEL_DIR/mp.sh" && chmod +x "$PANEL_DIR/mp.sh"
         log_info "Local files installed."
     else
         # Download from GitHub
         log_info "Downloading from GitHub..."
+        declare -A FILE_DEST=(
+            ["masterpanel.py"]="$PANEL_DIR/masterpanel.py"
+            ["index.html"]="$PANEL_DIR/templates/index.html"
+            ["bot.py"]="$PANEL_DIR/bot.py"
+            ["mp.sh"]="$PANEL_DIR/mp.sh"
+        )
         for FILE in masterpanel.py index.html; do
-            DEST="$PANEL_DIR/masterpanel.py"
-            [[ "$FILE" == "index.html" ]] && DEST="$PANEL_DIR/templates/index.html"
+            DEST="${FILE_DEST[$FILE]}"
             if wget -q "$GITHUB_RAW/$FILE" -O "$DEST"; then
                 log_info "Downloaded: $FILE"
             else
-                log_error "Failed to download $FILE from GitHub"
-                log_error "Make sure files are uploaded to: $GITHUB_RAW"
+                log_error "Failed to download $FILE — check: $GITHUB_RAW"
                 exit 1
             fi
         done
-        # Bot is optional
-        wget -q "$GITHUB_RAW/bot.py" -O "$PANEL_DIR/bot.py" && log_info "Downloaded: bot.py" || log_warn "bot.py not found (optional)"
+        # Optional files
+        wget -q "$GITHUB_RAW/bot.py" -O "$PANEL_DIR/bot.py" \
+            && log_info "Downloaded: bot.py" \
+            || log_warn "bot.py not found on GitHub (optional)"
+        wget -q "$GITHUB_RAW/mp.sh" -O "$PANEL_DIR/mp.sh" \
+            && { chmod +x "$PANEL_DIR/mp.sh"; log_info "Downloaded: mp.sh"; } \
+            || log_warn "mp.sh not found on GitHub (optional)"
     fi
-    # Install bot dependency
+
+    # Install Python dependencies
     "$PANEL_DIR/venv/bin/pip" install -q requests 2>/dev/null || true
 }
 
@@ -319,7 +288,7 @@ setup_firewall() {
                 10086/tcp 10087/tcp \
                 8388/tcp 8389/tcp 8390/tcp 8392/tcp \
                 8401/tcp 8402/tcp 8403/tcp 8404/tcp \
-                8500/udp 8600/udp 51820/udp 8081/tcp; do
+                51820/udp 8081/tcp; do
         ufw allow "$PORT" > /dev/null 2>&1 || true
     done
     ufw --force enable > /dev/null 2>&1 || true
@@ -369,52 +338,6 @@ StandardError=append:$PANEL_DIR/logs/bot.log
 WantedBy=multi-user.target
 SVC
 
-    # TUIC
-    if [[ -f /usr/local/bin/tuic-server && ! -f /tmp/tuic_failed ]]; then
-        cat > /etc/systemd/system/tuic-server.service << SVC
-[Unit]
-Description=TUIC v5 Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/tuic-server -c $PANEL_DIR/configs/tuic_config.json
-Restart=always
-RestartSec=5
-StandardOutput=append:$PANEL_DIR/logs/tuic.log
-StandardError=append:$PANEL_DIR/logs/tuic.log
-
-[Install]
-WantedBy=multi-user.target
-SVC
-        systemctl enable tuic-server > /dev/null 2>&1 || true
-        log_info "TUIC service created."
-    fi
-
-    # Hysteria2
-    if [[ -f /usr/local/bin/hysteria && ! -f /tmp/hy2_failed ]]; then
-        cat > /etc/systemd/system/hysteria2.service << SVC
-[Unit]
-Description=Hysteria2 Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/hysteria server -c $PANEL_DIR/configs/hysteria2_config.yaml
-Restart=always
-RestartSec=5
-StandardOutput=append:$PANEL_DIR/logs/hysteria2.log
-StandardError=append:$PANEL_DIR/logs/hysteria2.log
-
-[Install]
-WantedBy=multi-user.target
-SVC
-        systemctl enable hysteria2 > /dev/null 2>&1 || true
-        log_info "Hysteria2 service created."
-    fi
-
     systemctl daemon-reload
 
     # Start MasterPanel
@@ -435,13 +358,21 @@ SVC
 
 setup_nginx_sub() {
     log_step "Setting up HTTPS subscription via Nginx..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx 2>/dev/null || {
-        log_warn "Nginx install failed — subscription will be HTTP only"
-        return
-    }
 
     CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
     KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+
+    # اگه SSL نگرفتیم nginx رو بدون TLS راه نمیندازیم
+    if [[ ! -f "$CERT" ]]; then
+        log_warn "No SSL cert for $DOMAIN — skipping Nginx subscription setup."
+        log_warn "After fixing SSL, run: bash $PANEL_DIR/mp.sh renew-ssl"
+        return
+    fi
+
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx 2>/dev/null || {
+        log_warn "Nginx install failed — subscription will work via panel port only"
+        return
+    }
 
     # Nginx serves HTTPS on 8443 and proxies /sub/ to the panel (port 9090).
     # Note: 8443 is also used by Xray for some inbounds, so we use 2087... no —
@@ -488,7 +419,7 @@ NGINX
 setup_ssl_renewal() {
     log_step "SSL auto-renewal + traffic enforcement..."
     (crontab -l 2>/dev/null | grep -v certbot | grep -v "api/enforce"
-    echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl restart xray 2>/dev/null; systemctl restart tuic-server 2>/dev/null; systemctl restart hysteria2 2>/dev/null; systemctl restart masterpanel'"
+    echo "0 3 * * * certbot renew --quiet --deploy-hook 'systemctl restart xray 2>/dev/null; systemctl restart masterpanel'"
     echo "*/10 * * * * curl -sk -X POST https://127.0.0.1:9090/api/enforce -H 'X-Internal: 1' > /dev/null 2>&1"
     ) | crontab -
     log_info "Auto-renewal + enforcement configured."
@@ -520,8 +451,6 @@ print_summary() {
     echo ""
     echo -e "  ${WHITE}Installed:${NC}"
     echo -ne "  Xray      : "; $XRAY_DIR/xray version 2>/dev/null | head -1 || echo "OK"
-    echo -ne "  TUIC v5   : "; [[ -f /usr/local/bin/tuic-server ]] && echo "✓" || echo "skipped"
-    echo -ne "  Hysteria2 : "; [[ -f /usr/local/bin/hysteria ]] && (hysteria version 2>/dev/null | head -1 || echo "✓") || echo "skipped"
     echo ""
     echo -e "  ${YELLOW}Next steps:${NC}"
     echo -e "  1. Open panel → click 'ساخت همه پروتکل‌ها'"
@@ -541,8 +470,6 @@ check_os
 get_user_input
 install_dependencies
 install_xray
-install_tuic
-install_hysteria2
 obtain_ssl
 setup_panel
 download_panel_files

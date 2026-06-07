@@ -339,8 +339,6 @@ nav{flex:1;padding:12px;overflow-y:auto}
 .b-vmess{background:rgba(124,58,237,.15);color:#a78bfa}
 .b-trojan{background:rgba(245,158,11,.15);color:#fbbf24}
 .b-shadowsocks{background:rgba(16,185,129,.15);color:#34d399}
-.b-tuic{background:rgba(6,182,212,.15);color:#22d3ee}
-.b-hysteria2{background:rgba(168,85,247,.15);color:#c084fc}
 .b-tls{background:rgba(16,185,129,.1);color:#34d399;border:1px solid rgba(16,185,129,.15)}
 .b-reality{background:rgba(168,85,247,.1);color:#c084fc;border:1px solid rgba(168,85,247,.15)}
 .b-none{background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.15)}
@@ -485,6 +483,92 @@ nav{flex:1;padding:12px;overflow-y:auto}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{box-shadow:0 0 40px var(--glow),0 0 80px rgba(79,110,247,.1)}50%{box-shadow:0 0 60px var(--glow),0 0 120px rgba(79,110,247,.15)}}
+
+/* ── Hamburger button ── */
+.mob-toggle{
+  display:none;
+  position:fixed;top:14px;right:14px;z-index:200;
+  width:40px;height:40px;border-radius:10px;
+  background:rgba(10,15,30,.95);
+  border:1px solid rgba(79,110,247,.25);
+  color:var(--text);font-size:18px;
+  align-items:center;justify-content:center;
+  cursor:pointer;backdrop-filter:blur(12px);
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
+  transition:all .2s;
+}
+.mob-toggle:hover{background:rgba(79,110,247,.15);border-color:rgba(79,110,247,.4)}
+
+/* ── Sidebar overlay (mobile) ── */
+.sidebar-ov{
+  display:none;
+  position:fixed;inset:0;background:rgba(0,0,0,.6);
+  backdrop-filter:blur(4px);z-index:99;
+}
+
+/* ── Mobile ── */
+@media(max-width:768px){
+  .mob-toggle{display:flex}
+
+  .sidebar{
+    right:-280px;
+    transition:right .3s ease;
+    z-index:150;
+    width:260px;
+  }
+  .sidebar.open{right:0}
+
+  .sidebar-ov.open{display:block}
+
+  .main{
+    margin-right:0;
+    padding:16px;
+    padding-top:64px;
+  }
+
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:12px}
+  .proto-grid{grid-template-columns:repeat(2,1fr)}
+  .gen-grid{grid-template-columns:1fr 1fr}
+  .test-grid{grid-template-columns:1fr}
+
+  .topbar{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:12px;
+  }
+  .tbar-right{flex-wrap:wrap;gap:8px}
+
+  .stat-val{font-size:22px}
+
+  .modal-box{
+    margin:0;
+    max-width:100%;
+    border-radius:16px;
+  }
+
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tbl th,.tbl td{padding:10px 10px;font-size:12px}
+
+  .card-body{padding:14px}
+  .card-head{padding:12px 14px}
+
+  .btn{padding:9px 14px;font-size:12px}
+  .btn-sm{padding:6px 12px;font-size:11px}
+
+  #toast{
+    left:16px;right:16px;
+    transform:none;
+    white-space:normal;
+    text-align:center;
+  }
+}
+
+@media(max-width:420px){
+  .stats-grid{grid-template-columns:1fr 1fr}
+  .gen-grid{grid-template-columns:1fr}
+  .proto-grid{grid-template-columns:repeat(2,1fr)}
+  .main{padding:12px;padding-top:60px}
+}
 </style>
 </head>
 <body>
@@ -517,7 +601,9 @@ nav{flex:1;padding:12px;overflow-y:auto}
 
 <!-- APP -->
 <div id="app">
-  <div class="sidebar">
+  <button class="mob-toggle" onclick="toggleSidebar()">☰</button>
+  <div class="sidebar-ov" id="sidebar-ov" onclick="closeSidebar()"></div>
+  <div class="sidebar" id="sidebar">
     <div class="s-logo">
       <div class="s-logo-ico">🛡️</div>
       <div class="s-logo-text">
@@ -700,8 +786,6 @@ nav{flex:1;padding:12px;overflow-y:auto}
               <option value="vmess">VMess</option>
               <option value="trojan">Trojan</option>
               <option value="shadowsocks">SS</option>
-              <option value="tuic">TUIC</option>
-              <option value="hysteria2">HY2</option>
             </select>
             <span id="cfg-cnt" style="font-size:12px;color:var(--text2);">0</span>
           </div>
@@ -738,8 +822,6 @@ nav{flex:1;padding:12px;overflow-y:auto}
             <div class="gen-card"><div class="gen-ico">🟣</div><div class="gen-name">VMess</div><div class="gen-desc">WS · gRPC · HTTPUpgrade · TCP</div></div>
             <div class="gen-card"><div class="gen-ico">🟡</div><div class="gen-name">Trojan</div><div class="gen-desc">WS · gRPC · HTTPUpgrade · TCP · REALITY</div></div>
             <div class="gen-card"><div class="gen-ico">🟢</div><div class="gen-name">Shadowsocks</div><div class="gen-desc">chacha20 · aes-256 · 2022-blake3 · ShadowTLS</div></div>
-            <div class="gen-card"><div class="gen-ico">🩵</div><div class="gen-name">TUIC v5</div><div class="gen-desc">UDP · BBR · IP + CDN</div></div>
-            <div class="gen-card"><div class="gen-ico">🟪</div><div class="gen-name">Hysteria2</div><div class="gen-desc">QUIC · Obfs · IP + CDN</div></div>
           </div>
           <button class="btn btn-p" style="font-size:15px;padding:14px 36px;" onclick="generateAll()">
             ✨ ساخت همه پروتکل‌ها
@@ -1001,8 +1083,6 @@ nav{flex:1;padding:12px;overflow-y:auto}
         <button class="btn btn-g btn-sm" style="color:#a78bfa;border-color:rgba(124,58,237,.3)" onclick="genForUser('vmess')">VMess</button>
         <button class="btn btn-g btn-sm" style="color:#fbbf24;border-color:rgba(245,158,11,.3)" onclick="genForUser('trojan')">Trojan</button>
         <button class="btn btn-g btn-sm" style="color:#34d399;border-color:rgba(16,185,129,.3)" onclick="genForUser('ss')">SS</button>
-        <button class="btn btn-g btn-sm" style="color:#22d3ee;border-color:rgba(6,182,212,.3)" onclick="genForUser('tuic')">TUIC</button>
-        <button class="btn btn-g btn-sm" style="color:#c084fc;border-color:rgba(168,85,247,.3)" onclick="genForUser('hy2')">Hysteria2</button>
       </div>
     </div>
     <div id="ucfg-list"><div class="empty"><div class="empty-ico">⚙️</div><h4>کانفیگی ندارد</h4></div></div>
@@ -1144,7 +1224,7 @@ async function loadStatus() {
 }
 
 function renderProtos(counts) {
-  const icons={vless:'🔵',vmess:'🟣',trojan:'🟡',shadowsocks:'🟢',tuic:'🩵',hysteria2:'🟪',wireguard:'🟠'};
+  const icons={vless:'🔵',vmess:'🟣',trojan:'🟡',shadowsocks:'🟢',wireguard:'🟠'};
   document.getElementById('proto-summary').innerHTML=`
     <div class="proto-grid">
       ${Object.entries(counts).map(([p,n])=>`
@@ -1659,6 +1739,24 @@ async function doUpdateModal(){
     }
   } catch(e){document.getElementById('login-screen').style.display='flex';}
 })();
+
+// ── Mobile sidebar ────────────────────────────────────────────
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebar-ov');
+  sb.classList.toggle('open');
+  ov.classList.toggle('open');
+}
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-ov').classList.remove('open');
+}
+// Close sidebar on nav item click (mobile)
+document.querySelectorAll('.nav-i').forEach(el=>{
+  el.addEventListener('click',()=>{
+    if(window.innerWidth<=768) closeSidebar();
+  });
+});
 </script>
 </body>
 </html>

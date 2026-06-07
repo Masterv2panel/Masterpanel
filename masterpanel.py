@@ -2,7 +2,7 @@
 """
 MasterPanel - Xray Auto Protocol Configurator
 Backend Server v2.0
-Protocols: VLESS, VMess, Trojan, Shadowsocks, TUIC, Hysteria2, ShadowTLS, NaiveProxy, WireGuard
+Protocols: VLESS, VMess, Trojan, Shadowsocks, ShadowTLS, WireGuard
 """
 
 import os, json, uuid, subprocess, socket, ssl, time, base64, urllib.parse, secrets, string
@@ -51,10 +51,6 @@ XRAY_CFG_DIR.mkdir(parents=True, exist_ok=True)
 CURRENT_VERSION = "4.7.0"
 GITHUB_RAW = "https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
 
-def serve_html():
-    p = PANEL_DIR / "templates" / "index.html"
-    if p.exists(): return p.read_text(encoding="utf-8"), 200, {"Content-Type":"text/html; charset=utf-8"}
-    return "<h1>index.html not found</h1>", 404
 
 # ── Helpers ───────────────────────────────────────────────────
 def new_uuid():
@@ -188,27 +184,7 @@ def ss_link(c):
     userinfo = base64.b64encode(f"{method}:{password}".encode()).decode()
     return f"ss://{userinfo}@{addr}:{port}#{name}"
 
-def tuic_link(c):
-    uid  = c.get("id","")
-    pw   = c.get("password","")
-    addr = c.get("address", DOMAIN)
-    port = c.get("port", 443)
-    sni  = c.get("sni", DOMAIN)
-    name = urllib.parse.quote(c.get("name","tuic"))
-    return f"tuic://{uid}:{pw}@{addr}:{port}?sni={sni}&congestion_control=bbr&alpn=h3#{name}"
 
-def hysteria2_link(c):
-    pw   = c.get("password","")
-    addr = c.get("address", DOMAIN)
-    port = c.get("port", 443)
-    sni  = c.get("sni", DOMAIN)
-    name = urllib.parse.quote(c.get("name","hy2"))
-    obfs = c.get("obfs","")
-    obfs_pw = c.get("obfs_password","")
-    params = f"sni={sni}"
-    if obfs:
-        params += f"&obfs={obfs}&obfs-password={obfs_pw}"
-    return f"hysteria2://{pw}@{addr}:{port}?{params}#{name}"
 
 # ── Config Generator ──────────────────────────────────────────
 def generate_all_configs():
@@ -221,9 +197,6 @@ def generate_all_configs():
         "vless_id":     new_uuid(),
         "vmess_id":     new_uuid(),
         "trojan_pw":    new_password(20),
-        "tuic_id":      new_uuid(),
-        "tuic_pw":      new_password(16),
-        "hy2_pw":       new_password(20),
         "ss_pw_chacha": new_password(16),
         "ss_pw_aes":    new_password(16),
         "ss_pw_stls":   new_password(16),
@@ -242,9 +215,6 @@ def generate_all_configs():
         rd["priv_key"] = priv
         rd["pub_key"]  = pub
         rd["short_id"] = new_uuid()[:8]
-
-    # CF-supported HTTPS ports
-    cf_ports = [443, 2053, 2083, 2087, 2096, 8443]
 
     # ── SNI list — open in Iran ───────────────────────────────
     sni_list = [
@@ -383,28 +353,6 @@ def generate_all_configs():
         lbl = sni_stls.split(".")[-2].capitalize()
         configs.append({"name":f"SS-ShadowTLS-{lbl}","protocol":"shadowsocks","network":"tcp","tls":"shadowtls","port":8401+i,"method":"chacha20-ietf-poly1305","password":shared["ss_pw_stls"],"shadowtls_password":new_password(20),"shadowtls_sni":sni_stls,"address":ip,"connection_type":"direct_ip","note":"Requires ShadowTLS wrapper"})
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # TUIC v5 — separate server (port 8500). SNI variety, IP + CF.
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    tuic_port = 8500
-    configs.append({"name":"TUIC-v5-IP","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":DOMAIN,"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":ip,"connection_type":"direct_ip","congestion":"bbr"})
-    for sni_info in sni_list[1:5]:
-        configs.append({"name":f"TUIC-v5-{sni_info['label']}","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":sni_info["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":ip,"connection_type":"direct_ip","congestion":"bbr"})
-    for cf_ip in cf_clean_ips[:3]:
-        configs.append({"name":f"TUIC-v5-CFIP-{cf_ip.split('.')[-1]}","protocol":"tuic","network":"udp","tls":"tls","port":tuic_port,"sni":sni_list[1]["sni"],"id":shared["tuic_id"],"password":shared["tuic_pw"],"address":cf_ip,"connection_type":"cf_ip","congestion":"bbr"})
-
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Hysteria2 — separate server (port 8600). SNI variety + Obfs + CF.
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    hy2_port = 8600
-    hy2_obfs_pw = new_password(16)
-    configs.append({"name":"Hysteria2-IP","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":DOMAIN,"password":shared["hy2_pw"],"address":ip,"connection_type":"direct_ip"})
-    for sni_info in sni_list[1:5]:
-        configs.append({"name":f"Hysteria2-{sni_info['label']}","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":sni_info["sni"],"password":shared["hy2_pw"],"address":ip,"connection_type":"direct_ip"})
-    configs.append({"name":"Hysteria2-Obfs","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":DOMAIN,"password":shared["hy2_pw"],"obfs":"salamander","obfs_password":hy2_obfs_pw,"address":ip,"connection_type":"direct_ip"})
-    for cf_ip in cf_clean_ips[:4]:
-        configs.append({"name":f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}","protocol":"hysteria2","network":"udp","tls":"tls","port":hy2_port,"sni":sni_list[1]["sni"],"password":shared["hy2_pw"],"address":cf_ip,"connection_type":"cf_ip"})
-
     # WireGuard — separate (port 51820)
     configs.append({"name":"WireGuard-IP-51820","protocol":"wireguard","network":"udp","tls":"none","port":51820,"sni":"","private_key":shared["wg_pk"],"address":ip,"connection_type":"direct_ip","note":"Requires WireGuard client config"})
 
@@ -421,14 +369,10 @@ def generate_all_configs():
             cfg["link"] = trojan_link(cfg)
         elif proto == "shadowsocks":
             cfg["link"] = ss_link(cfg)
-        elif proto == "tuic":
-            cfg["link"] = tuic_link(cfg)
-        elif proto == "hysteria2":
-            cfg["link"] = hysteria2_link(cfg)
         else:
             cfg["link"] = ""
 
-        # Build Xray inbound (skip TUIC/HY2/WG — they run as separate processes)
+        # Build Xray inbound (skip WireGuard — runs as separate process)
         if proto in ("vless", "vmess", "trojan", "shadowsocks"):
             ib = build_inbound(cfg)
             if ib:
@@ -441,10 +385,8 @@ def generate_all_configs():
     # Export links
     export_all_links(configs)
 
-    # Write Xray + extra configs
+    # Write Xray config
     write_xray_config(inbounds)
-    write_tuic_config(configs)
-    write_hysteria2_config(configs)
 
     return configs
 
@@ -452,8 +394,8 @@ def generate_all_configs():
 # ── Xray Inbound Builder ──────────────────────────────────────
 def _effective_cert_paths():
     """Return (cert, key) to use for TLS inbounds. Prefer the real domain cert;
-    if it's missing, fall back to the panel's self-signed cert so Xray/TUIC/HY2
-    still start (configs will work by IP; browser/SNI warnings are expected)."""
+    if it's missing, fall back to the panel's self-signed cert so Xray
+    still starts (configs will work by IP; browser/SNI warnings are expected)."""
     if CERT_PATH and KEY_PATH and Path(CERT_PATH).exists() and Path(KEY_PATH).exists():
         return CERT_PATH, KEY_PATH
     sc = PANEL_DIR / "panel_cert.pem"
@@ -551,7 +493,7 @@ def _check_geosite_has_iran():
                       "settings": {"address": "127.0.0.1"}}],
         "outbounds": [{"protocol": "freedom"}, {"tag": "blocked", "protocol": "blackhole"}],
         "routing": {"rules": [
-            {"type": "field", "domain": ["geosite:category-ir", "geosite:ir", "geosite:category-ads-all"], "outboundTag": "blocked"},
+            {"type": "field", "domain": ["geosite:category-ir", "geosite:ir", "geosite:category-ads-all", "geosite:youtube"], "outboundTag": "blocked"},
             {"type": "field", "ip": ["geoip:ir"], "outboundTag": "direct"}
         ]}
     }
@@ -600,14 +542,18 @@ def write_xray_config(inbounds):
     })
 
     # Detect which geosite codes are available to avoid crashes.
-    # The Iranian geosite.dat (Chocolate4U) has category-ir, ir, category-ads-all.
+    # The Iranian geosite.dat (Chocolate4U) has category-ir, ir, category-ads-all,
+    # category-porn, youtube — used for blocking and IR bypass.
     # If it's missing those, fall back to minimal safe routing.
     iran_rules_ok = _check_geosite_has_iran()
     if iran_rules_ok:
         routing_rules = [
             {"type": "field", "inboundTag": ["api"], "outboundTag": "direct"},
             {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
-            {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "blocked"},
+            {"type": "field", "domain": [
+                "geosite:category-ads-all",
+                "geosite:youtube"
+            ], "outboundTag": "blocked"},
             {"type": "field", "domain": ["geosite:category-ir", "geosite:ir"], "outboundTag": "direct"},
             {"type": "field", "ip": ["geoip:ir"], "outboundTag": "direct"},
         ]
@@ -671,45 +617,6 @@ def write_xray_config(inbounds):
             pass
 
 
-def write_tuic_config(configs):
-    """Write TUIC v5 server config file."""
-    tuic_cfgs = [c for c in configs if c["protocol"] == "tuic"]
-    if not tuic_cfgs:
-        return
-    c = tuic_cfgs[0]
-    cert_f, key_f = _effective_cert_paths()
-    conf = {
-        "server": f"0.0.0.0:{c['port']}",
-        "users": {c["id"]: c["password"]},
-        "certificate": cert_f,
-        "private_key": key_f,
-        "congestion_controller": c.get("congestion","bbr"),
-        "alpn": ["h3"],
-        "log_level": "warn"
-    }
-    (CONFIGS_DIR / "tuic_config.json").write_text(json.dumps(conf, indent=2))
-
-
-def write_hysteria2_config(configs):
-    """Write Hysteria2 server config file."""
-    hy2_cfgs = [c for c in configs if c["protocol"] == "hysteria2"]
-    if not hy2_cfgs:
-        return
-    c = hy2_cfgs[0]
-    obfs_cfg = next((x for x in hy2_cfgs if x.get("obfs")), None)
-    cert_f, key_f = _effective_cert_paths()
-    yaml = (
-        f"listen: :{c['port']}\n"
-        f"tls:\n  cert: {cert_f}\n  key: {key_f}\n"
-        f"auth:\n  type: password\n  password: {c['password']}\n"
-        f"masquerade:\n  type: proxy\n  proxy:\n    url: https://www.google.com\n    rewriteHost: true\n"
-    )
-    if obfs_cfg:
-        yaml += (f"obfs:\n  type: salamander\n"
-                 f"  salamander:\n    password: {obfs_cfg['obfs_password']}\n")
-    (CONFIGS_DIR / "hysteria2_config.yaml").write_text(yaml)
-
-
 def export_all_links(configs):
     lines = [
         "# MasterPanel - All Configs Export",
@@ -719,7 +626,7 @@ def export_all_links(configs):
         f"# Total     : {len(configs)} configs",
         "",
     ]
-    proto_order = ["vless","vmess","trojan","shadowsocks","tuic","hysteria2","wireguard"]
+    proto_order = ["vless","vmess","trojan","shadowsocks","wireguard"]
     for conn_type, header in [("domain","CDN / Domain Configs"), ("direct_ip","Direct IP Configs")]:
         group = [c for c in configs if c.get("connection_type") == conn_type]
         if not group: continue
@@ -952,16 +859,6 @@ def api_export_summary():
         "proto_counts": proto_counts,
         "subscription_ready": (CONFIGS_DIR/"subscription_b64.txt").exists(),
     })
-
-@app.route("/api/extra_configs")
-@login_required
-def api_extra_configs():
-    """Return paths to TUIC/HY2 config files for display."""
-    result = {}
-    for name, fname in [("tuic","tuic_config.json"),("hysteria2","hysteria2_config.yaml")]:
-        f = CONFIGS_DIR / fname
-        result[name] = f.read_text() if f.exists() else None
-    return jsonify({"ok": True, "configs": result})
 
 
 # ── Settings API ──────────────────────────────────────────────
@@ -1247,7 +1144,6 @@ def api_user_generate(uid):
         priv,pub = get_reality_keys()
         rd["priv_key"]=priv; rd["pub_key"]=pub; rd["short_id"]=new_uuid()[:8]
 
-    cf_ports = [443,2053,2083,2087,2096,8443]
     sni_list = [
         {"sni":DOMAIN,                 "fp":"chrome",  "label":"Domain"},
         {"sni":"www.google.com",       "fp":"chrome",  "label":"Google"},
@@ -1268,7 +1164,7 @@ def api_user_generate(uid):
     u_email = f"{user['name']}-{uid[:8]}"
 
     # Map UI proto choices to internal protocol names
-    _alias = {"ss":"shadowsocks","hy2":"hysteria2"}
+    _alias = {"ss":"shadowsocks"}
     want = _alias.get(proto_filter, proto_filter)
 
     def add(name, proto, **kw):
@@ -1279,8 +1175,6 @@ def api_user_generate(uid):
         elif proto=="vmess":       cfg["link"]=vmess_link(cfg)
         elif proto=="trojan":      cfg["link"]=trojan_link(cfg)
         elif proto=="shadowsocks": cfg["link"]=ss_link(cfg)
-        elif proto=="tuic":        cfg["link"]=tuic_link(cfg)
-        elif proto=="hysteria2":   cfg["link"]=hysteria2_link(cfg)
         else: cfg["link"]=""
         configs.append(cfg)
         if proto in ("vless","vmess","trojan","shadowsocks"):
@@ -1344,21 +1238,6 @@ def api_user_generate(uid):
     ]:
         add(sv["name"],"shadowsocks",network="tcp",tls="none",port=sv["port"],method=sv["method"],password=sv["password"],address=ip,connection_type="direct_ip")
 
-    # TUIC — separate server on port 8500
-    tuic_id=new_uuid(); tuic_pw=new_password(16)
-    add(f"TUIC-v5-IP{sfx}","tuic",network="udp",tls="tls",port=8500,sni=DOMAIN,id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
-    for sni_info in sni_list[1:4]:
-        add(f"TUIC-v5-{sni_info['label']}{sfx}","tuic",network="udp",tls="tls",port=8500,sni=sni_info["sni"],id=tuic_id,password=tuic_pw,address=ip,connection_type="direct_ip",congestion="bbr")
-
-    # Hysteria2 — separate server on port 8600
-    hy2_pw=new_password(20); hy2_obfs=new_password(16)
-    add(f"Hysteria2-IP{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=DOMAIN,password=hy2_pw,address=ip,connection_type="direct_ip")
-    for sni_info in sni_list[1:4]:
-        add(f"Hysteria2-{sni_info['label']}{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=sni_info["sni"],password=hy2_pw,address=ip,connection_type="direct_ip")
-    add(f"Hysteria2-Obfs{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=DOMAIN,password=hy2_pw,obfs="salamander",obfs_password=hy2_obfs,address=ip,connection_type="direct_ip")
-    for cf_ip in cf_clean_ips[:4]:
-        add(f"Hysteria2-CFIP-{cf_ip.split('.')[-1]}{sfx}","hysteria2",network="udp",tls="tls",port=8600,sni=sni_list[1]["sni"],password=hy2_pw,address=cf_ip,connection_type="cf_ip")
-
     # ── Merge with existing configs ───────────────────────────────
     # If only one protocol was requested, keep this user's other-protocol
     # configs instead of wiping them.
@@ -1371,23 +1250,6 @@ def api_user_generate(uid):
 
     # ── Rebuild Xray from ALL enabled users (don't drop other users) ──
     rebuild_active_inbounds(users)
-
-    # ── Write TUIC + Hysteria2 server configs and (re)start them ──
-    try:
-        all_cfgs = []
-        for uu in users.values():
-            if uu.get("enabled", True):
-                all_cfgs += uu.get("configs", [])
-        tuic_cfgs = [c for c in all_cfgs if c.get("protocol") == "tuic"]
-        hy2_cfgs  = [c for c in all_cfgs if c.get("protocol") == "hysteria2"]
-        if tuic_cfgs:
-            write_tuic_config(tuic_cfgs)
-            subprocess.run(["systemctl","restart","tuic-server"], capture_output=True, timeout=15)
-        if hy2_cfgs:
-            write_hysteria2_config(hy2_cfgs)
-            subprocess.run(["systemctl","restart","hysteria2"], capture_output=True, timeout=15)
-    except Exception:
-        pass
 
     # Build subscription URLs to return alongside the configs
     https_sub = f"https://{DOMAIN}:{SUB_PORT}/sub/{user['sub_token']}"
@@ -1691,6 +1553,8 @@ def api_update():
     errors = []
     files = [("masterpanel.py", PANEL_DIR/"masterpanel.py"),
              ("index.html", PANEL_DIR/"templates"/"index.html"),
+             ("bot.py", PANEL_DIR/"bot.py"),
+             ("mp.sh", PANEL_DIR/"mp.sh"),
              ("version.txt", PANEL_DIR/"version.txt")]
     for fname, dest in files:
         url = f"{GITHUB_RAW}/{fname}"
@@ -1724,6 +1588,11 @@ def api_update():
         return jsonify({"ok":False,
             "error":"دانلود masterpanel.py ناموفق بود. بررسی کن فایل‌ها روی GitHub موجود باشند:\n"+GITHUB_RAW,
             "details":errors})
+
+    # Make mp.sh executable if downloaded
+    mp_path = PANEL_DIR / "mp.sh"
+    if mp_path.exists():
+        mp_path.chmod(0o755)
 
     subprocess.Popen(["bash","-c","sleep 2 && systemctl restart masterpanel"])
     return jsonify({"ok":True,"results":results,"message":"✅ آپدیت انجام شد — ۵ ثانیه صبر کن و رفرش کن"})
@@ -1799,7 +1668,11 @@ if __name__ == "__main__":
     from datetime import timedelta
     app.permanent_session_lifetime = timedelta(days=30)
     # Session cookie works under HTTPS; SameSite=Lax avoids cross-site drops
-    app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True)
+    app.config.update(
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=True,  # HTTPS only — panel always runs HTTPS
+    )
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
     ssl_ctx = _build_ssl_context()
     scheme = "https" if ssl_ctx else "http"

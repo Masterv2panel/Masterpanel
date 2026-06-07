@@ -1,11 +1,8 @@
 #!/bin/bash
 # ============================================================
 #   MasterPanel - Quick Installer
-#   Downloads all files and runs install.sh
 #   Usage: bash quickinstall.sh
 # ============================================================
-
-set -e
 
 RED='\033[0;31m'; GREEN='\033[0;32m'
 YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -16,46 +13,48 @@ echo "  ║      MasterPanel Quick Installer          ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Check root
 if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED}[ERROR] Run as root: sudo bash quickinstall.sh${NC}"
-  exit 1
+    echo -e "${RED}[ERROR] Run as root: sudo bash quickinstall.sh${NC}"
+    exit 1
 fi
 
-# Temp working dir
-TMPDIR=$(mktemp -d)
-cd "$TMPDIR"
-echo -e "${GREEN}[INFO]${NC} Working directory: $TMPDIR"
-
-# Install curl/wget if missing
 apt-get install -y -qq curl wget 2>/dev/null || true
 
-# ── If running from a local directory with all files present ──
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
+TMPDIR=$(mktemp -d)
+echo -e "${GREEN}[INFO]${NC} Working directory: $TMPDIR"
 
-if [[ -f "$SCRIPT_DIR/masterpanel.py" && -f "$SCRIPT_DIR/index.html" && -f "$SCRIPT_DIR/install.sh" ]]; then
-  echo -e "${GREEN}[INFO]${NC} Found local files in $SCRIPT_DIR"
-  cp "$SCRIPT_DIR/masterpanel.py" "$TMPDIR/"
-  cp "$SCRIPT_DIR/index.html" "$TMPDIR/"
-  cp "$SCRIPT_DIR/install.sh" "$TMPDIR/"
+# ── اگه فایل‌ها در کنار quickinstall.sh باشن ──
+# نکته: BASH_SOURCE[0] وقتی با bash <(curl) اجرا میشه درست کار نمیکنه
+# پس اول چک میکنیم آیا فایل‌ها در pwd هستن
+if [[ -f "$(pwd)/masterpanel.py" && -f "$(pwd)/index.html" && -f "$(pwd)/install.sh" ]]; then
+    echo -e "${GREEN}[INFO]${NC} Found local files in $(pwd)"
+    cp "$(pwd)/masterpanel.py" "$TMPDIR/"
+    cp "$(pwd)/index.html"     "$TMPDIR/"
+    cp "$(pwd)/install.sh"     "$TMPDIR/"
+    cp "$(pwd)/bot.py"         "$TMPDIR/" 2>/dev/null || true
+    cp "$(pwd)/mp.sh"          "$TMPDIR/" 2>/dev/null || true
 else
-  # ── Download from GitHub (update URL after pushing to your repo) ──
-  REPO_URL="https://raw.githubusercontent.com/Masterv2panel/Masterpanel/main"
-  echo -e "${YELLOW}[WARN]${NC} Local files not found. Trying to download..."
-
-  for FILE in install.sh masterpanel.py index.html; do
-    echo -e "${GREEN}[INFO]${NC} Downloading $FILE..."
-    if ! wget -q "$REPO_URL/$FILE" -O "$FILE"; then
-      echo -e "${RED}[ERROR]${NC} Failed to download $FILE"
-      echo -e "${YELLOW}[HINT]${NC} Upload the 3 files manually and run:"
-      echo -e "  cd /tmp/mp && chmod +x install.sh && bash install.sh"
-      exit 1
-    fi
-  done
+    echo -e "${YELLOW}[INFO]${NC} Downloading from GitHub..."
+    for FILE in install.sh masterpanel.py index.html bot.py mp.sh; do
+        if wget -q "$REPO_URL/$FILE" -O "$TMPDIR/$FILE" 2>/dev/null; then
+            echo -e "${GREEN}[OK]${NC} $FILE"
+        else
+            if [[ "$FILE" == "install.sh" || "$FILE" == "masterpanel.py" || "$FILE" == "index.html" ]]; then
+                echo -e "${RED}[ERROR]${NC} Failed to download required file: $FILE"
+                rm -rf "$TMPDIR"
+                exit 1
+            else
+                echo -e "${YELLOW}[WARN]${NC} Optional file not found: $FILE"
+            fi
+        fi
+    done
 fi
 
 chmod +x "$TMPDIR/install.sh"
-bash "$TMPDIR/install.sh"
+if [[ -f "$TMPDIR/mp.sh" ]]; then chmod +x "$TMPDIR/mp.sh"; fi
 
-# Cleanup
+cd "$TMPDIR"
+bash install.sh
+
 rm -rf "$TMPDIR"

@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import time
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -154,6 +155,7 @@ def user_menu():
     return [
         [{"text": "📱 کانفیگ‌های من", "callback_data": "myconfigs"}],
         [{"text": "📊 مصرف من", "callback_data": "myusage"}],
+        [{"text": "🔗 لینک سابسکریپشن", "callback_data": "mysub"}],
     ]
 
 
@@ -170,8 +172,6 @@ def get_status():
     return {
         "panel": active("masterpanel"),
         "xray": active("xray"),
-        "tuic": active("tuic-server"),
-        "hy2": active("hysteria2"),
     }
 
 
@@ -270,6 +270,7 @@ def handle_user_detail(chat_id, msg_id, user_id):
          {"text": "✨ ساخت کانفیگ", "callback_data": f"ugen_{user_id}"}],
         [{"text": toggle, "callback_data": f"utog_{user_id}"},
          {"text": "🔗 کد اتصال", "callback_data": f"ulink_{user_id}"}],
+        [{"text": "📡 لینک سابسکریپشن", "callback_data": f"usub_{user_id}"}],
         [{"text": "🗑 حذف کاربر", "callback_data": f"udel_{user_id}"}],
     ] + back_btn("users")
     edit(chat_id, msg_id, txt, kb)
@@ -340,6 +341,64 @@ def handle_user_link(chat_id, msg_id, user_id):
     edit(chat_id, msg_id, txt, back_btn(f"user_{user_id}"))
 
 
+def _get_sub_urls(u):
+    """Return (https_url, http_url) for a user's subscription."""
+    token = u.get("sub_token", "")
+    if not token:
+        return None, None
+    domain    = PANEL.get("DOMAIN", "")
+    panel_dom = PANEL.get("PANEL_DOMAIN", domain)
+    panel_port= PANEL.get("PANEL_PORT", "9090")
+    sub_port  = PANEL.get("SUB_PORT", "8081")
+    https_url = f"https://{domain}:{sub_port}/sub/{token}" if domain else None
+    http_url  = f"https://{panel_dom}:{panel_port}/sub/{token}" if panel_dom else None
+    return https_url, http_url
+
+
+def handle_user_suburl(chat_id, msg_id, user_id):
+    """Admin: show subscription link for a specific user."""
+    users = load_users()
+    u = users.get(user_id)
+    if not u:
+        edit(chat_id, msg_id, "کاربر یافت نشد.", back_btn("users"))
+        return
+    https_url, http_url = _get_sub_urls(u)
+    if not https_url and not http_url:
+        edit(chat_id, msg_id,
+             f"⚠️ کاربر <b>{u['name']}</b> هنوز کانفیگ ندارد.\nابتدا «ساخت کانفیگ» را بزنید.",
+             back_btn(f"user_{user_id}"))
+        return
+    txt = (f"📡 <b>لینک سابسکریپشن — {u['name']}</b>\n\n"
+           f"این لینک را به کاربر بدهید تا در کلاینت اضافه کند.\n\n")
+    if https_url:
+        txt += f"🔐 <b>لینک اصلی (HTTPS):</b>\n<code>{https_url}</code>\n\n"
+    if http_url:
+        txt += f"🔁 <b>لینک جایگزین (پنل):</b>\n<code>{http_url}</code>"
+    edit(chat_id, msg_id, txt, back_btn(f"user_{user_id}"))
+
+
+def handle_my_sub(chat_id, uid, msg_id):
+    """User: show own subscription link."""
+    users = load_users()
+    u = next((x for x in users.values() if x.get("telegram_id") == uid), None)
+    if not u:
+        edit(chat_id, msg_id, "حساب متصل نیست.", back_btn())
+        return
+    https_url, http_url = _get_sub_urls(u)
+    if not https_url and not http_url:
+        edit(chat_id, msg_id,
+             "⚠️ هنوز کانفیگی برای شما ساخته نشده.\nبا ادمین تماس بگیرید.",
+             back_btn())
+        return
+    txt = (f"📡 <b>لینک سابسکریپشن شما</b>\n\n"
+           f"این لینک را در کلاینت (v2rayNG، Streisand و غیره) اضافه کنید.\n\n")
+    if https_url:
+        txt += f"🔐 <b>لینک اصلی:</b>\n<code>{https_url}</code>\n\n"
+    if http_url:
+        txt += f"🔁 <b>لینک جایگزین:</b>\n<code>{http_url}</code>"
+    edit(chat_id, msg_id, txt, back_btn())
+
+
 def handle_user_delete(chat_id, msg_id, user_id):
     users = load_users()
     if user_id in users:
@@ -369,9 +428,7 @@ def handle_server_status(chat_id, msg_id):
     def icon(x): return "🟢 فعال" if x else "🔴 خاموش"
     txt = (f"⚙️ <b>وضعیت سرویس‌ها</b>\n\n"
            f"پنل: {icon(s['panel'])}\n"
-           f"Xray: {icon(s['xray'])}\n"
-           f"TUIC: {icon(s['tuic'])}\n"
-           f"Hysteria2: {icon(s['hy2'])}\n\n"
+           f"Xray: {icon(s['xray'])}\n\n"
            f"🌐 IP: <code>{PANEL.get('DOMAIN','—')}</code>")
     edit(chat_id, msg_id, txt, back_btn())
 
@@ -493,6 +550,8 @@ def handle_callback(cb):
         handle_my_configs(chat_id, uid, msg_id); return
     if data == "myusage":
         handle_my_usage(chat_id, uid, msg_id); return
+    if data == "mysub":
+        handle_my_sub(chat_id, uid, msg_id); return
     if data == "menu":
         if is_admin(uid):
             edit(chat_id, msg_id, "🛡 منوی اصلی:", admin_menu())
@@ -529,6 +588,8 @@ def handle_callback(cb):
         handle_user_toggle(chat_id, msg_id, data[5:])
     elif data.startswith("ulink_"):
         handle_user_link(chat_id, msg_id, data[6:])
+    elif data.startswith("usub_"):
+        handle_user_suburl(chat_id, msg_id, data[5:])
     elif data.startswith("udel_"):
         handle_user_delete(chat_id, msg_id, data[5:])
 
@@ -550,11 +611,118 @@ def handle_message(msg):
         handle_start(chat_id, uid, name)
 
 
+# ── Notification scheduler ────────────────────────────────────
+# فایل برای track کردن نوتیف‌های ارسال‌شده (جلوگیری از تکرار)
+NOTIF_FILE = PANEL_DIR / "notif_sent.json"
+
+def load_notif_sent():
+    if NOTIF_FILE.exists():
+        try: return json.loads(NOTIF_FILE.read_text())
+        except: pass
+    return {}
+
+def save_notif_sent(data):
+    NOTIF_FILE.write_text(json.dumps(data))
+
+def run_notifications():
+    """هر ۶ ساعت یه بار اجرا میشه — به کاربرایی که نزدیک انقضا یا اتمام حجم هستن خبر میده."""
+    while True:
+        try:
+            _check_and_notify()
+        except Exception as e:
+            log.error(f"notif loop: {e}")
+        time.sleep(6 * 3600)  # هر ۶ ساعت
+
+def _check_and_notify():
+    users = load_users()
+    sent = load_notif_sent()
+    now = datetime.now()
+    changed = False
+
+    for uid, u in users.items():
+        tg_id = u.get("telegram_id")
+        if not tg_id or not u.get("enabled", True):
+            continue
+
+        name = u.get("name", "کاربر")
+        notif_key_expire = f"{uid}_expire"
+        notif_key_traffic = f"{uid}_traffic"
+
+        # ── چک انقضا ──────────────────────────────────────────
+        if u.get("expire_at"):
+            try:
+                exp = datetime.strptime(u["expire_at"], "%Y-%m-%d")
+                days_left = (exp - now).days
+                # نوتیف اگه ۳ روز یا کمتر مونده و قبلاً نفرستادیم
+                if 0 <= days_left <= 3 and sent.get(notif_key_expire) != u["expire_at"]:
+                    if days_left == 0:
+                        msg = (f"⚠️ <b>اشتراک شما امروز منقضی می‌شود!</b>\n\n"
+                               f"کاربر: <b>{name}</b>\n"
+                               f"تاریخ انقضا: {u['expire_at']}\n\n"
+                               f"برای تمدید با ادمین تماس بگیرید.")
+                    else:
+                        msg = (f"⏰ <b>اشتراک شما {days_left} روز دیگر منقضی می‌شود</b>\n\n"
+                               f"کاربر: <b>{name}</b>\n"
+                               f"تاریخ انقضا: {u['expire_at']}\n\n"
+                               f"برای تمدید با ادمین تماس بگیرید.")
+                    send(tg_id, msg)
+                    sent[notif_key_expire] = u["expire_at"]
+                    changed = True
+                    log.info(f"notif expire sent → {name} ({days_left}d left)")
+            except Exception:
+                pass
+
+        # ── چک حجم ────────────────────────────────────────────
+        limit_gb = u.get("limit_gb", 0)
+        if limit_gb > 0:
+            used = u.get("used_bytes", 0)
+            limit_bytes = limit_gb * 1024 ** 3
+            percent = used / limit_bytes * 100 if limit_bytes > 0 else 0
+
+            # نوتیف اگه ۸۰٪ یا ۹۵٪ مصرف شده
+            for threshold, key_suffix in [(95, "95"), (80, "80")]:
+                notif_key_t = f"{notif_key_traffic}_{key_suffix}"
+                if percent >= threshold and sent.get(notif_key_t) != uid + u["expire_at"] + key_suffix:
+                    used_fmt = fmt_bytes(used)
+                    limit_fmt = f"{limit_gb} GB"
+                    msg = (f"{'🔴' if threshold == 95 else '🟡'} <b>{'تقریباً تمام' if threshold == 95 else '۸۰٪'} حجم مصرف شد</b>\n\n"
+                           f"کاربر: <b>{name}</b>\n"
+                           f"مصرف: {used_fmt} از {limit_fmt} ({percent:.0f}٪)\n\n"
+                           f"{'در صورت اتمام حجم، اشتراک قطع می‌شود.' if threshold == 95 else 'به زودی به حجم مجاز می‌رسید.'}")
+                    send(tg_id, msg)
+                    sent[notif_key_t] = uid + u.get("expire_at","") + key_suffix
+                    changed = True
+                    log.info(f"notif traffic {threshold}% sent → {name}")
+                    break  # فقط یکی از threshold‌ها رو بفرست
+
+        # ── نوتیف ادمین: کاربر غیرفعال شد ────────────────────
+        if not u.get("enabled", True):
+            notif_key_dis = f"{uid}_disabled"
+            if not sent.get(notif_key_dis):
+                # به ادمین‌ها خبر بده
+                for admin_id in ADMIN_IDS:
+                    reason = "اتمام حجم" if u.get("limit_gb", 0) > 0 and u.get("used_bytes", 0) >= u.get("limit_gb", 0) * 1024**3 else "انقضای اشتراک"
+                    send(admin_id,
+                         f"🔴 <b>کاربر غیرفعال شد</b>\n\n"
+                         f"نام: <b>{name}</b>\n"
+                         f"دلیل: {reason}")
+                sent[notif_key_dis] = True
+                changed = True
+
+    if changed:
+        save_notif_sent(sent)
+
+
 def main():
     if not TOKEN:
         log.error("BOT_TOKEN not set in bot.conf — exiting")
         return
     log.info(f"Bot started. Admins: {ADMIN_IDS}")
+
+    # شروع thread نوتیف‌های خودکار
+    t = threading.Thread(target=run_notifications, daemon=True)
+    t.start()
+    log.info("Notification scheduler started (every 6h)")
     offset = 0
     while True:
         try:
